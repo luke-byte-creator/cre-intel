@@ -300,3 +300,55 @@ export const watchlist = sqliteTable("watchlist", {
 }, (table) => [
   index("idx_watchlist_entity").on(table.entityType, table.entityId),
 ]);
+
+// Office Buildings
+export const officeBuildings = sqliteTable("office_buildings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  address: text("address").notNull(),
+  streetNumber: text("street_number"),
+  neighborhood: text("neighborhood"),
+  buildingName: text("building_name"),
+  buildingClass: text("building_class"),
+  floors: integer("floors"),
+  yearBuilt: integer("year_built"),
+  totalSF: integer("total_sf"),
+  contiguousBlock: integer("contiguous_block"),
+  directVacantSF: integer("direct_vacant_sf"),
+  subleaseSF: integer("sublease_sf"),
+  totalVacantSF: integer("total_vacant_sf"),
+  totalAvailableSF: integer("total_available_sf"),
+  vacancyRate: real("vacancy_rate"),
+  netAskingRate: real("net_asking_rate"),
+  opCost: real("op_cost"),
+  grossRate: real("gross_rate"),
+  listingAgent: text("listing_agent"),
+  parkingType: text("parking_type"),
+  parkingRatio: text("parking_ratio"),
+  owner: text("owner"),
+  parcelNumber: text("parcel_number"),
+  comments: text("comments"),
+  dataSource: text("data_source"),
+  updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_office_buildings_class").on(table.buildingClass),
+  index("idx_office_buildings_address").on(table.address),
+]);
+
+// Office Units (floor/suite-level tenant data)
+export const officeUnits = sqliteTable("office_units", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  buildingId: integer("building_id").notNull(),
+  floor: text("floor").notNull(),
+  suite: text("suite"),
+  areaSF: integer("area_sf"),
+  tenantName: text("tenant_name"),
+  isVacant: integer("is_vacant").default(0),
+  isSublease: integer("is_sublease").default(0),
+  listingAgent: text("listing_agent"),
+  notes: text("notes"),
+  verifiedDate: text("verified_date"),
+  updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_office_units_building").on(table.buildingId),
+  index("idx_office_units_tenant").on(table.tenantName),
+]);
