@@ -10,13 +10,14 @@ export async function GET(req: NextRequest) {
   const auth = await requireAuth(req);
   if (auth instanceof Response) return auth;
   const q = req.nextUrl.searchParams.get("q") || "";
-  const type = req.nextUrl.searchParams.get("type") || "all";
+  const type = req.nextUrl.searchParams.get("type") || "companies";
+  const limit = Math.min(100, Math.max(1, parseInt(req.nextUrl.searchParams.get("limit") || "25")));
 
   const results: Record<string, unknown[]> = {};
 
   if (type === "all" || type === "companies") {
     const companies = db.select().from(schema.companies).all();
-    const matched = fuzzyMatch(companies, q, (c) => [c.name, c.entityNumber || "", c.registeredAddress || ""]);
+    const matched = fuzzyMatch(companies, q, (c) => [c.name, c.entityNumber || "", c.registeredAddress || ""]).slice(0, limit);
 
     if (matched.length > 0) {
       const matchedIds = matched.map((m) => m.item.id);
@@ -91,7 +92,7 @@ export async function GET(req: NextRequest) {
 
   if (type === "all" || type === "people") {
     const people = db.select().from(schema.people).all();
-    const matched = fuzzyMatch(people, q, (p) => [p.fullName, p.address || ""]);
+    const matched = fuzzyMatch(people, q, (p) => [p.fullName, p.address || ""]).slice(0, limit);
 
     if (matched.length > 0) {
       const matchedIds = matched.map((m) => m.item.id);
@@ -126,7 +127,7 @@ export async function GET(req: NextRequest) {
 
   if (type === "all" || type === "properties") {
     const properties = db.select().from(schema.properties).all();
-    const matched = fuzzyMatch(properties, q, (p) => [p.address || "", p.neighbourhood || "", p.parcelId || ""]);
+    const matched = fuzzyMatch(properties, q, (p) => [p.address || "", p.neighbourhood || "", p.parcelId || ""]).slice(0, limit);
     results.properties = matched.map((m) => ({ ...m.item, _score: m.score }));
   }
 
