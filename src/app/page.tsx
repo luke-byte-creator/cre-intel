@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fmtCurrency } from "@/lib/format";
 
-interface MonthlySale { month: string; count: number; volume: number; }
-interface MonthlyPermit { month: string; count: number; value: number; }
+interface QuarterlySale { quarter: string; count: number; volume: number; }
+interface QuarterlyPermit { quarter: string; count: number; value: number; }
 
 interface Stats {
   counts: {
@@ -41,8 +41,8 @@ interface Stats {
     issueDate: string;
     workType: string;
   }>;
-  monthlySales: MonthlySale[];
-  monthlyPermits: MonthlyPermit[];
+  quarterlySales: QuarterlySale[];
+  quarterlyPermits: QuarterlyPermit[];
 }
 
 const fmt = fmtCurrency;
@@ -139,26 +139,26 @@ export default function Dashboard() {
       </div>
 
       {/* Charts */}
-      {stats.monthlySales && stats.monthlySales.length > 0 && (
+      {stats.quarterlySales && stats.quarterlySales.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-5">
-            <h3 className="text-sm font-semibold text-white mb-4">Sale Volume <span className="text-zinc-400 font-normal">(recent months)</span></h3>
+            <h3 className="text-sm font-semibold text-white mb-4">Sale Volume <span className="text-zinc-400 font-normal">(quarterly)</span></h3>
             <MiniBarChart
-              data={[...stats.monthlySales].reverse().slice(-6).map(m => ({ label: m.month.slice(5), value: m.volume }))}
+              data={[...stats.quarterlySales].reverse().slice(-6).map(m => ({ label: m.quarter.replace(/^\d{2}/, "'"), value: m.volume }))}
               color="#22c55e"
             />
           </div>
           <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-5">
-            <h3 className="text-sm font-semibold text-white mb-4">Permit Value <span className="text-zinc-400 font-normal">(recent months)</span></h3>
+            <h3 className="text-sm font-semibold text-white mb-4">Permit Value <span className="text-zinc-400 font-normal">(quarterly)</span></h3>
             <MiniBarChart
-              data={[...(stats.monthlyPermits || [])].reverse().slice(-6).map(m => ({ label: m.month.slice(5), value: m.value }))}
+              data={[...(stats.quarterlyPermits || [])].reverse().slice(-6).map(m => ({ label: m.quarter.replace(/^\d{2}/, "'"), value: m.value }))}
               color="#f59e0b"
             />
           </div>
           <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-5">
-            <h3 className="text-sm font-semibold text-white mb-4">Sale Count <span className="text-zinc-400 font-normal">(recent months)</span></h3>
+            <h3 className="text-sm font-semibold text-white mb-4">Sale Count <span className="text-zinc-400 font-normal">(quarterly)</span></h3>
             <MiniBarChart
-              data={[...stats.monthlySales].reverse().slice(-6).map(m => ({ label: m.month.slice(5), value: m.count }))}
+              data={[...stats.quarterlySales].reverse().slice(-6).map(m => ({ label: m.quarter.replace(/^\d{2}/, "'"), value: m.count }))}
               color="#3b82f6"
               isCurrency={false}
             />

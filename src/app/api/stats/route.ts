@@ -32,27 +32,28 @@ export async function GET(req: NextRequest) {
     .all()[0];
 
   // Monthly sale aggregations
-  const monthlySales = db.all<{ month: string; count: number; volume: number }>(
-    sql`SELECT strftime('%Y-%m', sale_date) as month,
+  // Quarterly sale aggregations
+  const quarterlySales = db.all<{ quarter: string; count: number; volume: number }>(
+    sql`SELECT strftime('%Y', sale_date) || '-Q' || ((CAST(strftime('%m', sale_date) AS INTEGER) - 1) / 3 + 1) as quarter,
            COUNT(*) as count,
            COALESCE(SUM(sale_price), 0) as volume
     FROM comps
     WHERE type = 'Sale' AND sale_date IS NOT NULL
-    GROUP BY strftime('%Y-%m', sale_date)
-    ORDER BY month DESC
-    LIMIT 12`
+    GROUP BY quarter
+    ORDER BY quarter DESC
+    LIMIT 8`
   );
 
-  // Monthly permit aggregations
-  const monthlyPermits = db.all<{ month: string; count: number; value: number }>(
-    sql`SELECT strftime('%Y-%m', issue_date) as month,
+  // Quarterly permit aggregations
+  const quarterlyPermits = db.all<{ quarter: string; count: number; value: number }>(
+    sql`SELECT strftime('%Y', issue_date) || '-Q' || ((CAST(strftime('%m', issue_date) AS INTEGER) - 1) / 3 + 1) as quarter,
            COUNT(*) as count,
            COALESCE(SUM(estimated_value), 0) as value
     FROM permits
     WHERE issue_date IS NOT NULL
-    GROUP BY strftime('%Y-%m', issue_date)
-    ORDER BY month DESC
-    LIMIT 12`
+    GROUP BY quarter
+    ORDER BY quarter DESC
+    LIMIT 8`
   );
 
   // Recent sales
@@ -86,7 +87,7 @@ export async function GET(req: NextRequest) {
     },
     recentSales,
     recentPermits,
-    monthlySales,
-    monthlyPermits,
+    quarterlySales,
+    quarterlyPermits,
   });
 }
