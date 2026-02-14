@@ -404,3 +404,29 @@ export const multiBuildings = sqliteTable("multi_buildings", {
   index("idx_multi_buildings_owner").on(table.buildingOwner),
   index("idx_multi_buildings_address").on(table.address),
 ]);
+
+// Retail Developments
+export const retailDevelopments = sqliteTable("retail_developments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  area: text("area"), // e.g. "West", "South", "East"
+  address: text("address"),
+  notes: text("notes"),
+  sortOrder: integer("sort_order").default(0),
+  updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
+});
+
+// Retail Tenants
+export const retailTenants = sqliteTable("retail_tenants", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  developmentId: integer("development_id").notNull(),
+  tenantName: text("tenant_name").notNull(),
+  category: text("category"), // QSR, Retail, Medical, Financial, Fitness, etc.
+  comment: text("comment"),
+  status: text("status").default("active"), // active, out-of-business, presented, rejected
+  sortOrder: integer("sort_order").default(0),
+  updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_retail_tenants_dev").on(table.developmentId),
+  index("idx_retail_tenants_name").on(table.tenantName),
+]);
