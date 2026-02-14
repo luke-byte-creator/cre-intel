@@ -352,3 +352,55 @@ export const officeUnits = sqliteTable("office_units", {
   index("idx_office_units_building").on(table.buildingId),
   index("idx_office_units_tenant").on(table.tenantName),
 ]);
+
+// Multifamily Buildings
+export const multiBuildings = sqliteTable("multi_buildings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  streetNumber: text("street_number"),
+  streetName: text("street_name"),
+  address: text("address").notNull(), // computed: "streetNumber streetName"
+  city: text("city").default("Saskatoon"),
+  postal: text("postal"),
+  buildingName: text("building_name"),
+  cmhcZone: text("cmhc_zone"),
+  region: text("region"), // East, North, West
+  units: integer("units"),
+  zoning: text("zoning"),
+  yearBuilt: integer("year_built"),
+  assessedValue: integer("assessed_value"),
+  buildingOwner: text("building_owner"),
+  parcelNumber: text("parcel_number"),
+  titleValue: integer("title_value"),
+  titleTransferDate: text("title_transfer_date"),
+  propertyManager: text("property_manager"),
+  managerContact: text("manager_contact"),
+  propertyOwner: text("property_owner"),
+  ownerContact: text("owner_contact"),
+  ownerEmail: text("owner_email"),
+  constructionClass: text("construction_class"),
+  // Rent survey data
+  bachRentLow: real("bach_rent_low"),
+  bachRentHigh: real("bach_rent_high"),
+  bachSF: integer("bach_sf"),
+  oneBedRentLow: real("one_bed_rent_low"),
+  oneBedRentHigh: real("one_bed_rent_high"),
+  oneBedSF: integer("one_bed_sf"),
+  twoBedRentLow: real("two_bed_rent_low"),
+  twoBedRentHigh: real("two_bed_rent_high"),
+  twoBedSF: integer("two_bed_sf"),
+  threeBedRentLow: real("three_bed_rent_low"),
+  threeBedRentHigh: real("three_bed_rent_high"),
+  threeBedSF: integer("three_bed_sf"),
+  rentSource: text("rent_source"),
+  // Prospecting
+  contactInfo: integer("contact_info").default(0), // 0/1 = has contact info been collected
+  contactDate: text("contact_date"),
+  comments: text("comments"),
+  isCondo: integer("is_condo").default(0),
+  isSalesComp: integer("is_sales_comp").default(0),
+  updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_multi_buildings_region").on(table.region),
+  index("idx_multi_buildings_owner").on(table.buildingOwner),
+  index("idx_multi_buildings_address").on(table.address),
+]);
