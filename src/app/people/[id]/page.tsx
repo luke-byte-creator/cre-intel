@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ProfileHeader, ProfileTabs, DetailGrid } from "@/components/ProfileLayout";
+import { ContactField } from "@/components/ContactField";
 
 interface PersonData {
   person: Record<string, string | number | null>;
@@ -32,6 +33,7 @@ export default function PersonProfile() {
   const p = data.person;
   const tabs = [
     { id: "details", label: "Details" },
+    { id: "contact", label: "Contact" },
     { id: "companies", label: "Companies", count: data.companies.length },
   ];
 
@@ -58,6 +60,23 @@ export default function PersonProfile() {
             ["Last Name", p.lastName],
             ["Address", p.address],
           ]} />
+        )}
+
+        {tab === "contact" && (
+          <div className="bg-card border border-card-border rounded-xl p-6 space-y-5">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-muted/60 font-semibold">Email</label>
+              <ContactField personId={Number(id)} field="email" value={p.email as string | null} placeholder="Add email..." />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-muted/60 font-semibold">Phone</label>
+              <ContactField personId={Number(id)} field="phone" value={p.phone as string | null} placeholder="Add phone..." />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-muted/60 font-semibold">Notes</label>
+              <ContactField personId={Number(id)} field="notes" value={p.notes as string | null} placeholder="Add notes..." />
+            </div>
+          </div>
         )}
 
         {tab === "companies" && (

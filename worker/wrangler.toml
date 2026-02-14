@@ -1,0 +1,11 @@
+name = "nova-email-worker"
+main = "src/index.ts"
+compatibility_date = "2026-02-14"
+
+[vars]
+INGEST_URL = "https://nova-cre.dev/api/inquiries/email"
+INGEST_SECRET = "nova-ingest-dev-key-2026"
+
+[[email_routing.matchers]]
+pattern = "leads@nova-cre.dev"
+action = "worker"

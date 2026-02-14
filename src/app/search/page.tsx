@@ -3,9 +3,24 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
+interface CompResult {
+  id: number;
+  type: string;
+  address: string;
+  saleDate: string | null;
+  salePrice: number | null;
+  netRentPSF: number | null;
+  annualRent: number | null;
+  seller: string | null;
+  purchaser: string | null;
+  tenant: string | null;
+  landlord: string | null;
+  propertyType: string | null;
+}
+
 interface SearchResults {
-  companies?: Array<{ id: number; name: string; entityNumber: string; type: string; status: string; _score: number }>;
-  people?: Array<{ id: number; fullName: string; address: string; _score: number }>;
+  companies?: Array<{ id: number; name: string; entityNumber: string; type: string; status: string; _score: number; director: string | null; lastMove: { type: string; date: string; price: number } | null }>;
+  people?: Array<{ id: number; fullName: string; address: string; _score: number; companyName: string | null }>;
   properties?: Array<{ id: number; address: string; propertyType: string; neighbourhood: string; city: string; _score: number }>;
 }
 
@@ -22,14 +37,24 @@ export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
   const [results, setResults] = useState<SearchResults | null>(null);
+  const [comps, setComps] = useState<CompResult[]>([]);
   const [loading, setLoading] = useState(false);
 
   const search = useCallback(async (q: string, type: FilterType) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&type=${type}`);
+      const [res, compsRes] = await Promise.all([
+        fetch(`/api/search?q=${encodeURIComponent(q)}&type=${type}`),
+        q.length >= 2 ? fetch(`/api/comps?search=${encodeURIComponent(q)}&limit=10`) : Promise.resolve(null),
+      ]);
       const data = await res.json();
       setResults(data);
+      if (compsRes) {
+        const cd = await compsRes.json();
+        setComps(cd.data || []);
+      } else {
+        setComps([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -40,7 +65,7 @@ export default function SearchPage() {
     return () => clearTimeout(timer);
   }, [query, filter, search]);
 
-  const totalResults = (results?.companies?.length || 0) + (results?.people?.length || 0) + (results?.properties?.length || 0);
+  const totalResults = (results?.companies?.length || 0) + (results?.people?.length || 0) + (results?.properties?.length || 0) + comps.length;
 
   return (
     <div className="space-y-6">
@@ -114,13 +139,17 @@ export default function SearchPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-foreground">{c.name}</p>
-                      <p className="text-xs text-muted mt-0.5">{c.entityNumber} · {c.type}</p>
+                      <p className="text-xs text-muted mt-0.5">
+                        {c.director || "No director on file"}
+                      </p>
                     </div>
-                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                      c.status === "Active" ? "bg-success/15 text-success" : "bg-danger/15 text-danger"
-                    }`}>
-                      {c.status}
-                    </span>
+                    {c.lastMove && (
+                      <span className={`text-xs px-2.5 py-1 rounded-full font-medium whitespace-nowrap ${
+                        c.lastMove.type === "Purchase" ? "bg-success/15 text-success" : "bg-amber-500/15 text-amber-400"
+                      }`}>
+                        {c.lastMove.type} · {c.lastMove.price >= 1_000_000 ? `$${(c.lastMove.price / 1_000_000).toFixed(1)}M` : c.lastMove.price >= 1_000 ? `$${(c.lastMove.price / 1_000).toFixed(0)}K` : `$${c.lastMove.price}`} · {c.lastMove.date}
+                      </span>
+                    )}
                   </div>
                 </Link>
               ))}
@@ -143,7 +172,7 @@ export default function SearchPage() {
               {results.people.map((p) => (
                 <Link key={p.id} href={`/people/${p.id}`} className="block px-5 py-3.5 hover:bg-accent/[0.04]">
                   <p className="text-sm font-medium text-foreground">{p.fullName}</p>
-                  {p.address && <p className="text-xs text-muted mt-0.5">{p.address}</p>}
+                  {p.companyName && <p className="text-xs text-muted mt-0.5">{p.companyName}</p>}
                 </Link>
               ))}
             </div>
@@ -174,6 +203,51 @@ export default function SearchPage() {
                         {p.propertyType}
                       </span>
                     )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {comps.length > 0 && (
+          <div className="bg-card border border-card-border rounded-xl overflow-hidden">
+            <div className="px-5 py-3 border-b border-card-border flex items-center gap-2">
+              <div className="w-6 h-6 rounded bg-amber-500/15 text-amber-400 flex items-center justify-center">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <h2 className="text-sm font-semibold text-foreground">
+                Transactions
+                <span className="ml-2 text-xs text-muted font-normal">({comps.length})</span>
+              </h2>
+            </div>
+            <div className="divide-y divide-card-border/50">
+              {comps.map((c) => (
+                <Link key={c.id} href={c.type === "Sale" ? "/sales" : "/leases"} className="block px-5 py-3.5 hover:bg-accent/[0.04]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.type === "Sale" ? "bg-blue-500/15 text-blue-400" : "bg-green-500/15 text-green-400"}`}>{c.type}</span>
+                        <p className="text-sm font-medium text-foreground">{c.address}</p>
+                      </div>
+                      <p className="text-xs text-muted mt-0.5">
+                        {c.type === "Sale" 
+                          ? `${c.seller || "?"} → ${c.purchaser || "?"}`
+                          : `${c.tenant || "?"} • ${c.landlord || "?"}`
+                        }
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      {c.type === "Sale" && c.salePrice && (
+                        <span className="text-sm font-mono text-foreground">${c.salePrice.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+                      )}
+                      {c.type === "Lease" && c.netRentPSF && (
+                        <span className="text-sm font-mono text-foreground">${c.netRentPSF.toFixed(2)}/SF</span>
+                      )}
+                      {c.saleDate && (
+                        <p className="text-xs text-muted">{new Date(c.saleDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" })}</p>
+                      )}
+                    </div>
                   </div>
                 </Link>
               ))}

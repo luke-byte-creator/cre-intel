@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { fmtCurrency } from "@/lib/format";
+
+interface MonthlyTx { month: string; count: number; volume: number; }
+interface MonthlyPermit { month: string; count: number; value: number; }
 
 interface Stats {
   counts: {
@@ -43,13 +47,11 @@ interface Stats {
     isRead: boolean;
     createdAt: string;
   }>;
+  monthlyTransactions: MonthlyTx[];
+  monthlyPermits: MonthlyPermit[];
 }
 
-function fmt(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
-  return `$${n}`;
-}
+const fmt = fmtCurrency;
 
 const statConfig = [
   { key: "companies", label: "Companies", color: "from-blue-500/20 to-blue-600/5", border: "border-blue-500/20", text: "text-blue-400", icon: (
@@ -61,7 +63,7 @@ const statConfig = [
   { key: "properties", label: "Properties", color: "from-emerald-500/20 to-emerald-600/5", border: "border-emerald-500/20", text: "text-emerald-400", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 21v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21m0 0h4.5V3.545M12.75 21h7.5V10.75M2.25 21h1.5m18 0h-18M2.25 9l4.5-1.636M18.75 3l-1.5.545m0 6.205l3 1m1.5.5l-1.5-.5M6.75 7.364V3h-3v18m3-13.636l10.5-3.819" /></svg>
   )},
-  { key: "transactions", label: "Transactions", color: "from-amber-500/20 to-amber-600/5", border: "border-amber-500/20", text: "text-amber-400", icon: (
+  { key: "transactions", label: "Transactions (3mo)", color: "from-amber-500/20 to-amber-600/5", border: "border-amber-500/20", text: "text-amber-400", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>
   )},
 ];
@@ -76,6 +78,27 @@ function StatCard({ label, value, color, border, text, icon }: {
         <span className={`${text} opacity-80`}>{icon}</span>
       </div>
       <p className="text-3xl font-bold text-foreground tracking-tight">{value}</p>
+    </div>
+  );
+}
+
+function MiniBarChart({ data, color, isCurrency = true }: { data: { label: string; value: number }[]; color: string; isCurrency?: boolean }) {
+  const max = Math.max(...data.map(d => d.value), 1);
+  const fmtVal = (v: number) => {
+    if (!isCurrency) return String(v);
+    if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
+    return `$${v}`;
+  };
+  return (
+    <div className="flex items-end gap-2 h-28">
+      {data.map((d) => (
+        <div key={d.label} className="flex-1 flex flex-col items-center gap-1">
+          <span className="text-xs text-muted font-mono">{fmtVal(d.value)}</span>
+          <div className="w-full rounded-t" style={{ height: `${Math.max((d.value / max) * 80, 4)}px`, backgroundColor: color }} />
+          <span className="text-[10px] text-muted">{d.label}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -145,13 +168,41 @@ export default function Dashboard() {
         <StatCard label="Watchlist" value={counts.watchlist} color="from-pink-500/20 to-pink-600/5" border="border-pink-500/20" text="text-pink-400" icon={
           <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
         } />
-        <StatCard label="Transaction Vol." value={fmt(totals.transactionValue)} color="from-cyan-500/20 to-cyan-600/5" border="border-cyan-500/20" text="text-cyan-400" icon={
+        <StatCard label="Transaction Vol. (3mo)" value={fmt(totals.transactionValue)} color="from-cyan-500/20 to-cyan-600/5" border="border-cyan-500/20" text="text-cyan-400" icon={
           <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" /></svg>
         } />
-        <StatCard label="Permit Value" value={fmt(totals.permitValue)} color="from-teal-500/20 to-teal-600/5" border="border-teal-500/20" text="text-teal-400" icon={
+        <StatCard label="Permit Value (3mo)" value={fmt(totals.permitValue)} color="from-teal-500/20 to-teal-600/5" border="border-teal-500/20" text="text-teal-400" icon={
           <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" /></svg>
         } />
       </div>
+
+      {/* Rolling 3-Month Charts */}
+      {stats.monthlyTransactions && stats.monthlyTransactions.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-card border border-card-border rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-4">Transaction Volume <span className="text-muted font-normal">(last 3 months)</span></h3>
+            <MiniBarChart
+              data={[...stats.monthlyTransactions].reverse().map(m => ({ label: m.month, value: m.volume }))}
+              color="#22c55e"
+            />
+          </div>
+          <div className="bg-card border border-card-border rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-4">Permit Value <span className="text-muted font-normal">(last 3 months)</span></h3>
+            <MiniBarChart
+              data={[...(stats.monthlyPermits || [])].reverse().map(m => ({ label: m.month, value: m.value }))}
+              color="#f59e0b"
+            />
+          </div>
+          <div className="bg-card border border-card-border rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-4">Transaction Count <span className="text-muted font-normal">(last 3 months)</span></h3>
+            <MiniBarChart
+              data={[...stats.monthlyTransactions].reverse().map(m => ({ label: m.month, value: m.count }))}
+              color="#3b82f6"
+              isCurrency={false}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Alerts - prominent */}
       {counts.unreadAlerts > 0 && (

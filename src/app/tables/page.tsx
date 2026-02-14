@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import DataTable, { Column } from "@/components/DataTable";
+import { fmtCurrencyFull } from "@/lib/format";
 
 type TableName = "companies" | "people" | "properties" | "transactions" | "permits";
 
@@ -13,9 +14,6 @@ const TABLE_CONFIG: Record<TableName, { label: string; icon: string }> = {
   transactions: { label: "Transactions", icon: "💰" },
   permits: { label: "Permits", icon: "🔨" },
 };
-
-const fmt = (v: unknown) =>
-  v != null ? Number(v).toLocaleString("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 }) : "—";
 
 function getColumns(table: TableName): Column<Record<string, unknown>>[] {
   switch (table) {
@@ -56,7 +54,7 @@ function getColumns(table: TableName): Column<Record<string, unknown>>[] {
         { key: "transactionType", label: "Type" },
         { key: "grantor", label: "Grantor" },
         { key: "grantee", label: "Grantee" },
-        { key: "price", label: "Price", render: (r) => <span className="font-mono">{fmt(r.price)}</span>, getValue: (r) => r.price as number },
+        { key: "price", label: "Price", render: (r) => <span className="font-mono">{fmtCurrencyFull(r.price)}</span>, getValue: (r) => r.price as number },
         { key: "titleNumber", label: "Title #", hidden: true },
       ];
     case "permits":
@@ -67,7 +65,7 @@ function getColumns(table: TableName): Column<Record<string, unknown>>[] {
         { key: "address", label: "Address" },
         { key: "workType", label: "Work Type", filterable: true },
         { key: "description", label: "Description", render: (r) => <span className="max-w-xs truncate block">{(r.description as string) || "—"}</span> },
-        { key: "estimatedValue", label: "Value", render: (r) => <span className="font-mono">{fmt(r.estimatedValue)}</span>, getValue: (r) => r.estimatedValue as number },
+        { key: "estimatedValue", label: "Value", render: (r) => <span className="font-mono">{fmtCurrencyFull(r.estimatedValue)}</span>, getValue: (r) => r.estimatedValue as number },
         { key: "status", label: "Status", hidden: true },
         { key: "buildingType", label: "Building Type", hidden: true },
       ];

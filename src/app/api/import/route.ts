@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
-import { eq, like } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import { requireAuth } from "@/lib/auth";
 import { parseCorporateRegistry } from "@/lib/parsers/corporate-registry";
 import { parseBuildingPermits } from "@/lib/parsers/building-permits";
 import { parseTransferList } from "@/lib/parsers/transfer-list";
@@ -339,15 +340,31 @@ async function importTransferList(buffer: Buffer | Uint8Array, filename: string)
   return { success: true, fileType: "transfer_list", filename, stats, warnings, matches: matchResults };
 }
 
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+const ALLOWED_EXTENSIONS = ["pdf", "xlsx", "xls", "csv"];
+
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof Response) return auth;
+
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
     if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 });
 
+    // File size limit
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json({ error: "File too large. Maximum size is 20 MB." }, { status: 400 });
+    }
+
+    // Extension whitelist
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      return NextResponse.json({ error: "Unsupported file type. Allowed: PDF, XLSX, XLS, CSV." }, { status: 400 });
+    }
+
     const bytes = await file.arrayBuffer();
     const buffer = new Uint8Array(bytes);
-    const ext = file.name.split(".").pop()?.toLowerCase() || "";
     const fileType = detectFileType(file.name, ext);
 
     let result: ImportResult;
@@ -374,7 +391,7 @@ export async function POST(req: NextRequest) {
     console.error("Import error:", error);
     return NextResponse.json({
       success: false,
-      error: error instanceof Error ? error.message : "Import failed",
+      error: "Import failed. Please check the file format and try again.",
     }, { status: 500 });
   }
 }
