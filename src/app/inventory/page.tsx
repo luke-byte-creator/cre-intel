@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { Fragment, useEffect, useState, useMemo, useCallback } from "react";
 
 interface Building {
   address: string;
@@ -41,6 +41,7 @@ export default function InventoryPage() {
   const [search, setSearch] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [sizeRange, setSizeRange] = useState(0);
+  const [occupancy, setOccupancy] = useState<"all" | "vacant" | "occupied">("all");
   const [sortKey, setSortKey] = useState<SortKey>("areaSF");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
@@ -88,8 +89,14 @@ export default function InventoryPage() {
       );
     }
 
+    if (occupancy === "vacant") {
+      result = result.filter((b) => !b.businessName);
+    } else if (occupancy === "occupied") {
+      result = result.filter((b) => !!b.businessName);
+    }
+
     return result;
-  }, [data, search, neighborhood, sizeRange]);
+  }, [data, search, neighborhood, sizeRange, occupancy]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -191,9 +198,12 @@ export default function InventoryPage() {
           <p className="text-2xl font-bold text-foreground">{neighborhoods.length}</p>
         </div>
         <div className="bg-gradient-to-br from-amber-500/20 to-amber-600/5 border border-amber-500/20 rounded-xl p-4">
-          <p className="text-muted text-xs font-medium mb-1">With Tenants</p>
+          <p className="text-muted text-xs font-medium mb-1">Vacancy Rate</p>
           <p className="text-2xl font-bold text-foreground">
-            {filtered.filter((b) => b.businessName).length.toLocaleString()}
+            {filtered.length > 0 ? Math.round((filtered.filter((b) => !b.businessName).length / filtered.length) * 100) : 0}%
+          </p>
+          <p className="text-xs text-muted mt-0.5">
+            {filtered.filter((b) => !b.businessName).length.toLocaleString()} vacant
           </p>
         </div>
       </div>
@@ -235,6 +245,16 @@ export default function InventoryPage() {
           {SIZE_RANGES.map((r, i) => (
             <option key={i} value={i}>{r.label}</option>
           ))}
+        </select>
+
+        <select
+          value={occupancy}
+          onChange={(e) => { setOccupancy(e.target.value as "all" | "vacant" | "occupied"); setPage(0); }}
+          className="bg-card border border-card-border rounded-lg px-3 py-2 text-sm text-foreground cursor-pointer hover:border-muted focus:outline-none focus:ring-1 focus:ring-accent"
+        >
+          <option value="all">All Occupancy</option>
+          <option value="vacant">Vacant Only</option>
+          <option value="occupied">Occupied Only</option>
         </select>
 
         <button
@@ -290,11 +310,12 @@ export default function InventoryPage() {
                 </td>
               </tr>
             ) : (
-              paged.map((b, i) => (
-                <>
+              paged.map((b, i) => {
+                const rowKey = `${b.address}-${b.id || i}`;
+                return (
+                <Fragment key={rowKey}>
                   <tr
-                    key={b.id || b.address}
-                    onClick={() => setExpanded(expanded === (b.id || b.address) ? null : (b.id || b.address))}
+                    onClick={() => setExpanded(expanded === rowKey ? null : rowKey)}
                     className={`border-b border-card-border/50 last:border-0 cursor-pointer ${
                       i % 2 === 0 ? "bg-background" : "bg-card/30"
                     } hover:bg-accent/[0.04]`}
@@ -312,8 +333,8 @@ export default function InventoryPage() {
                     <td className="px-4 py-2.5 text-muted whitespace-nowrap">{b.permitDate || "—"}</td>
                     <td className="px-4 py-2.5 text-muted whitespace-nowrap">{b.postalCode || "—"}</td>
                   </tr>
-                  {expanded === (b.id || b.address) && (
-                    <tr key={`${b.id || b.address}-detail`} className="bg-accent/[0.03]">
+                  {expanded === rowKey && (
+                    <tr className="bg-accent/[0.03]">
                       <td colSpan={6} className="px-6 py-4">
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                           <div>
@@ -358,8 +379,9 @@ export default function InventoryPage() {
                       </td>
                     </tr>
                   )}
-                </>
-              ))
+                </Fragment>
+                );
+              })
             )}
           </tbody>
         </table>
