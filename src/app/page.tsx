@@ -144,21 +144,21 @@ export default function Dashboard() {
           <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-5">
             <h3 className="text-sm font-semibold text-white mb-4">Sale Volume <span className="text-zinc-400 font-normal">(quarterly)</span></h3>
             <MiniBarChart
-              data={[...stats.quarterlySales].reverse().slice(-6).map(m => ({ label: m.quarter.replace(/^\d{2}/, "'"), value: m.volume }))}
+              data={[...stats.quarterlySales].reverse().slice(-3).map(m => ({ label: m.quarter.replace(/^\d{2}/, "'"), value: m.volume }))}
               color="#22c55e"
             />
           </div>
           <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-5">
             <h3 className="text-sm font-semibold text-white mb-4">Permit Value <span className="text-zinc-400 font-normal">(quarterly)</span></h3>
             <MiniBarChart
-              data={[...(stats.quarterlyPermits || [])].reverse().slice(-6).map(m => ({ label: m.quarter.replace(/^\d{2}/, "'"), value: m.value }))}
+              data={[...(stats.quarterlyPermits || [])].reverse().slice(-3).map(m => ({ label: m.quarter.replace(/^\d{2}/, "'"), value: m.value }))}
               color="#f59e0b"
             />
           </div>
           <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-5">
             <h3 className="text-sm font-semibold text-white mb-4">Sale Count <span className="text-zinc-400 font-normal">(quarterly)</span></h3>
             <MiniBarChart
-              data={[...stats.quarterlySales].reverse().slice(-6).map(m => ({ label: m.quarter.replace(/^\d{2}/, "'"), value: m.count }))}
+              data={[...stats.quarterlySales].reverse().slice(-3).map(m => ({ label: m.quarter.replace(/^\d{2}/, "'"), value: m.count }))}
               color="#3b82f6"
               isCurrency={false}
             />
