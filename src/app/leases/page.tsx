@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import CompEditModal from "@/components/CompEditModal";
 
 interface Comp {
   id: number;
@@ -134,6 +135,7 @@ export default function LeasesPage() {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState<Comp | null>(null);
   const limit = 50;
 
   useEffect(() => {
@@ -206,6 +208,24 @@ export default function LeasesPage() {
   function SortIcon({ col }: { col: string }) {
     if (sortBy !== col) return null;
     return <span className="ml-1 text-blue-400">{sortDir === "asc" ? "↑" : "↓"}</span>;
+  }
+
+  async function handleSave(updates: Record<string, unknown>) {
+    if (!editing) return;
+    await fetch(`/api/comps/${editing.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    setEditing(null);
+    fetchData();
+  }
+
+  async function handleDelete() {
+    if (!editing) return;
+    await fetch(`/api/comps/${editing.id}`, { method: "DELETE" });
+    setEditing(null);
+    fetchData();
   }
 
   const totalPages = Math.ceil(total / limit);
@@ -307,7 +327,8 @@ export default function LeasesPage() {
                   <LeaseRow key={r.id} r={r} expanded={expanded === r.id}
                     isSelected={selected.has(r.id)}
                     onToggle={() => setExpanded(expanded === r.id ? null : r.id)}
-                    onSelect={(e) => toggleSelect(r.id, e)} />
+                    onSelect={(e) => toggleSelect(r.id, e)}
+                    onEdit={() => setEditing(r)} />
                 ))}
               </tbody>
             </table>
@@ -337,7 +358,7 @@ export default function LeasesPage() {
                       <span className="font-mono text-white">{fmtRent(r.netRentPSF)}</span>
                       <span className="text-zinc-400">{fmtSF(r.areaSF)}</span>
                     </div>
-                    {expanded === r.id && <ExpandedDetail r={r} />}
+                    {expanded === r.id && <ExpandedDetail r={r} onEdit={() => setEditing(r)} />}
                   </div>
                 </div>
               </div>
@@ -356,11 +377,21 @@ export default function LeasesPage() {
           )}
         </>
       )}
+
+      {editing && (
+        <CompEditModal
+          comp={editing as unknown as Record<string, unknown>}
+          type="Lease"
+          onSave={handleSave}
+          onDelete={handleDelete}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }
 
-function LeaseRow({ r, expanded, isSelected, onToggle, onSelect }: { r: Comp; expanded: boolean; isSelected: boolean; onToggle: () => void; onSelect: (e: React.MouseEvent) => void }) {
+function LeaseRow({ r, expanded, isSelected, onToggle, onSelect, onEdit }: { r: Comp; expanded: boolean; isSelected: boolean; onToggle: () => void; onSelect: (e: React.MouseEvent) => void; onEdit: () => void }) {
   return (
     <>
       <tr className={`border-b border-zinc-700 ${isSelected ? "bg-blue-500/10" : "bg-zinc-900"} hover:bg-zinc-800 cursor-pointer transition-colors`}>
@@ -379,7 +410,7 @@ function LeaseRow({ r, expanded, isSelected, onToggle, onSelect }: { r: Comp; ex
       {expanded && (
         <tr className="bg-zinc-800/50">
           <td colSpan={8} className="px-6 py-4">
-            <ExpandedDetail r={r} />
+            <ExpandedDetail r={r} onEdit={onEdit} />
           </td>
         </tr>
       )}
@@ -387,7 +418,7 @@ function LeaseRow({ r, expanded, isSelected, onToggle, onSelect }: { r: Comp; ex
   );
 }
 
-function ExpandedDetail({ r }: { r: Comp }) {
+function ExpandedDetail({ r, onEdit }: { r: Comp; onEdit: () => void }) {
   let rentSteps: { rate: number | null; annual: number | null; date: string | null }[] = [];
   try {
     if (r.rentSteps) rentSteps = JSON.parse(r.rentSteps);
@@ -395,6 +426,13 @@ function ExpandedDetail({ r }: { r: Comp }) {
 
   return (
     <div className="mt-3 pt-3 border-t border-zinc-700 space-y-4">
+      <div className="flex justify-end">
+        <button onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          className="px-3 py-1.5 text-sm bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded-lg transition-colors flex items-center gap-1.5">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+          Edit
+        </button>
+      </div>
       <div>
         <h4 className="text-xs uppercase text-zinc-500 font-semibold mb-2">Property Details</h4>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">

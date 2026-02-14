@@ -8,39 +8,21 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req);
   if (auth instanceof Response) return auth;
+
   const [companies] = db.select({ count: sql<number>`count(*)` }).from(schema.companies).all();
   const [people] = db.select({ count: sql<number>`count(*)` }).from(schema.people).all();
   const [properties] = db.select({ count: sql<number>`count(*)` }).from(schema.properties).all();
-  const [transactions] = db.select({ count: sql<number>`count(*)` }).from(schema.transactions).where(sql`transfer_date >= date((SELECT MAX(transfer_date) FROM transactions), '-3 months')`).all();
+  const [salesCount] = db.select({ count: sql<number>`count(*)` }).from(schema.comps).where(sql`type = 'Sale'`).all();
+  const [leasesCount] = db.select({ count: sql<number>`count(*)` }).from(schema.comps).where(sql`type = 'Lease'`).all();
   const [permits] = db.select({ count: sql<number>`count(*)` }).from(schema.permits).all();
-  const [watchlistCount] = db.select({ count: sql<number>`count(*)` }).from(schema.watchlist).all();
-  const [unreadAlerts] = db.select({ count: sql<number>`count(*)` }).from(schema.alertsLog).where(sql`is_read = 0`).all();
+  const [deals] = db.select({ count: sql<number>`count(*)` }).from(schema.deals).where(sql`stage != 'closed'`).all();
+  const [inquiries] = db.select({ count: sql<number>`count(*)` }).from(schema.inquiries).where(sql`status = 'new'`).all();
 
-  const recentTransactions = db
-    .select()
-    .from(schema.transactions)
-    .orderBy(sql`transfer_date DESC`)
-    .limit(5)
-    .all();
-
-  const recentPermits = db
-    .select()
-    .from(schema.permits)
-    .orderBy(sql`issue_date DESC`)
-    .limit(5)
-    .all();
-
-  const recentAlerts = db
-    .select()
-    .from(schema.alertsLog)
-    .orderBy(sql`created_at DESC`)
-    .limit(10)
-    .all();
-
-  const totalTransactionValue = db
-    .select({ total: sql<number>`COALESCE(SUM(price), 0)` })
-    .from(schema.transactions)
-    .where(sql`transfer_date >= date((SELECT MAX(transfer_date) FROM transactions), '-3 months')`)
+  // Recent 3 months of sale volume
+  const totalSaleValue = db
+    .select({ total: sql<number>`COALESCE(SUM(sale_price), 0)` })
+    .from(schema.comps)
+    .where(sql`type = 'Sale' AND sale_date >= date((SELECT MAX(sale_date) FROM comps WHERE type = 'Sale'), '-3 months')`)
     .all()[0];
 
   const totalPermitValue = db
@@ -49,45 +31,62 @@ export async function GET(req: NextRequest) {
     .where(sql`issue_date >= date((SELECT MAX(issue_date) FROM permits), '-3 months')`)
     .all()[0];
 
-  // Monthly aggregations via raw SQL expressions through drizzle
-  const monthlyTransactions = db.all<{ month: string; count: number; volume: number }>(
-    sql`SELECT strftime('%Y-%m', transfer_date) as month,
+  // Monthly sale aggregations
+  const monthlySales = db.all<{ month: string; count: number; volume: number }>(
+    sql`SELECT strftime('%Y-%m', sale_date) as month,
            COUNT(*) as count,
-           COALESCE(SUM(price), 0) as volume
-    FROM transactions
-    GROUP BY strftime('%Y-%m', transfer_date)
+           COALESCE(SUM(sale_price), 0) as volume
+    FROM comps
+    WHERE type = 'Sale' AND sale_date IS NOT NULL
+    GROUP BY strftime('%Y-%m', sale_date)
     ORDER BY month DESC
-    LIMIT 3`
+    LIMIT 12`
   );
 
+  // Monthly permit aggregations
   const monthlyPermits = db.all<{ month: string; count: number; value: number }>(
     sql`SELECT strftime('%Y-%m', issue_date) as month,
            COUNT(*) as count,
            COALESCE(SUM(estimated_value), 0) as value
     FROM permits
+    WHERE issue_date IS NOT NULL
     GROUP BY strftime('%Y-%m', issue_date)
     ORDER BY month DESC
-    LIMIT 3`
+    LIMIT 12`
   );
+
+  // Recent sales
+  const recentSales = db.all(
+    sql`SELECT id, address, city, sale_date, sale_price, seller, purchaser, property_type
+    FROM comps WHERE type = 'Sale' ORDER BY sale_date DESC LIMIT 5`
+  );
+
+  // Recent permits
+  const recentPermits = db
+    .select()
+    .from(schema.permits)
+    .orderBy(sql`issue_date DESC`)
+    .limit(5)
+    .all();
 
   return NextResponse.json({
     counts: {
       companies: companies.count,
       people: people.count,
       properties: properties.count,
-      transactions: transactions.count,
+      sales: salesCount.count,
+      leases: leasesCount.count,
       permits: permits.count,
-      watchlist: watchlistCount.count,
-      unreadAlerts: unreadAlerts.count,
+      activeDeals: deals.count,
+      newInquiries: inquiries.count,
     },
     totals: {
-      transactionValue: totalTransactionValue.total,
+      saleValue: totalSaleValue.total,
       permitValue: totalPermitValue.total,
     },
-    recentTransactions,
+    recentSales,
     recentPermits,
-    recentAlerts,
-    monthlyTransactions,
+    monthlySales,
     monthlyPermits,
   });
 }
