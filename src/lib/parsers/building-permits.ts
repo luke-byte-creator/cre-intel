@@ -75,13 +75,34 @@ export async function parseBuildingPermits(
 
     if (!value || value < minValue) continue;
 
-    // Address
+    // Address — find the PROJECT address, not the applicant's mailing address.
+    // The project address is the last address before "Commercial Building" in the block.
+    // The applicant address comes first (often with postal code + phone number).
     let address: string | null = null;
-    const addrMatch = trimmed.match(
-      /(\d+\s+(?:\d+\s+)?[A-Za-z][A-Za-z\s]+?(?:AVE|ST|DR|RD|BLVD|CRES|PL|WAY|LANE|CRT|TERR|PKWY|HWY|CIRCLE|MANOR|MEWS|TRAIL|GATE|Bend|Pkwy)\s*[NSEW]?\s*(?:#\s*\d+)?),?\s*\n?\s*Saskatoon,?\s*SK/i
-    );
-    if (addrMatch) {
-      address = addrMatch[0].replace(/\s+/g, " ").trim().replace(/,$/, "");
+    const addrPattern = /(\d+\s+(?:\d+\s+)?(?:[A-Za-z][\w\s]+?|[\d]+(?:st|nd|rd|th)\s+)(?:AVE|ST|DR|RD|BLVD|CRES|PL|WAY|LANE|CRT|TERR|PKWY|HWY|CIRCLE|MANOR|MEWS|TRAIL|GATE|Bend|Pkwy)\s*[NSEW]?\s*(?:#\s*\d+)?),?\s*\n?\s*(?:Saskatoon|Regina|Prince Albert|Warman|Martensville),?\s*SK/gi;
+    const allAddresses: { match: string; index: number }[] = [];
+    let addrMatch;
+    while ((addrMatch = addrPattern.exec(trimmed)) !== null) {
+      allAddresses.push({ match: addrMatch[0], index: addrMatch.index });
+    }
+    // Find the "Commercial Building" marker
+    const commIdx = trimmed.indexOf("Commercial Building");
+    if (allAddresses.length > 0 && commIdx > 0) {
+      // Take the last address that appears before "Commercial Building"
+      const beforeComm = allAddresses.filter(a => a.index < commIdx);
+      const best = beforeComm.length > 0 ? beforeComm[beforeComm.length - 1] : allAddresses[allAddresses.length - 1];
+      address = best.match.replace(/\s+/g, " ").trim().replace(/,$/, "");
+    } else if (allAddresses.length > 0) {
+      // Fallback: use the last address found (most likely the project address)
+      address = allAddresses[allAddresses.length - 1].match.replace(/\s+/g, " ").trim().replace(/,$/, "");
+    }
+    // Clean up stray postal code digits that get prepended (e.g. "9 2100 8th ST" from "S7K 8A9\n2100...")
+    if (address) {
+      address = address.replace(/^\d\s+(?=\d)/, "");
+      // Remove company names that leaked into the address
+      if (address.match(/Construction|Architect|Engineering|Design|Group|Consult/i)) {
+        address = null;
+      }
     }
 
     // Scope
