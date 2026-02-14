@@ -23,8 +23,8 @@ function getColumns(table: TableName): Column<Record<string, unknown>>[] {
       return [
         { key: "name", label: "Name" },
         { key: "entityNumber", label: "Entity #" },
-        { key: "type", label: "Type" },
-        { key: "status", label: "Status", render: (r) => {
+        { key: "type", label: "Type", filterable: true },
+        { key: "status", label: "Status", filterable: true, render: (r) => {
           const s = r.status as string;
           const color = s === "Active" ? "text-success" : s === "Dissolved" ? "text-danger" : "text-muted";
           return <span className={color}>{s || "—"}</span>;
@@ -44,7 +44,7 @@ function getColumns(table: TableName): Column<Record<string, unknown>>[] {
     case "properties":
       return [
         { key: "address", label: "Address" },
-        { key: "propertyType", label: "Type" },
+        { key: "propertyType", label: "Type", filterable: true },
         { key: "neighbourhood", label: "Neighbourhood" },
         { key: "city", label: "City" },
         { key: "province", label: "Province", hidden: true },
@@ -65,7 +65,7 @@ function getColumns(table: TableName): Column<Record<string, unknown>>[] {
         { key: "issueDate", label: "Date" },
         { key: "applicant", label: "Applicant" },
         { key: "address", label: "Address" },
-        { key: "workType", label: "Work Type" },
+        { key: "workType", label: "Work Type", filterable: true },
         { key: "description", label: "Description", render: (r) => <span className="max-w-xs truncate block">{(r.description as string) || "—"}</span> },
         { key: "estimatedValue", label: "Value", render: (r) => <span className="font-mono">{fmt(r.estimatedValue)}</span>, getValue: (r) => r.estimatedValue as number },
         { key: "status", label: "Status", hidden: true },
