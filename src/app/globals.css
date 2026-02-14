@@ -5,12 +5,15 @@
   --foreground: #e4e4e7;
   --card: #1a1b23;
   --card-border: #2a2b35;
+  --card-hover: #1f2029;
   --accent: #3b82f6;
   --accent-hover: #2563eb;
+  --accent-subtle: rgba(59, 130, 246, 0.08);
   --muted: #71717a;
   --success: #22c55e;
   --warning: #f59e0b;
   --danger: #ef4444;
+  --surface: #15161e;
 }
 
 @theme inline {
@@ -18,12 +21,15 @@
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-border: var(--card-border);
+  --color-card-hover: var(--card-hover);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
   --color-muted: var(--muted);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
+  --color-surface: var(--surface);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -31,17 +37,55 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+}
+
+/* Smooth transitions globally */
+* {
+  transition-property: background-color, border-color, color, opacity, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Opt out for animations */
+[class*="animate-"], [class*="transition-transform"] {
+  transition-property: all;
 }
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--background);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--card-border);
   border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Focus rings */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Table sticky header */
+.sticky-header thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--card);
+  box-shadow: 0 1px 0 var(--card-border);
+}
+
+/* Gradient text helper */
+.text-gradient {
+  background: linear-gradient(135deg, var(--accent) 0%, #818cf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
