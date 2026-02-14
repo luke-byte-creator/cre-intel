@@ -7,55 +7,37 @@ interface Tenant {
   developmentId: number;
   tenantName: string;
   category: string | null;
-  comment: string | null;
-  status: string;
+  areaSF: number | null;
 }
 
 interface Development {
   id: number;
   name: string;
-  area: string | null;
-  address: string | null;
-  notes: string | null;
   tenants: Tenant[];
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  active: "bg-emerald-500/20 text-emerald-300",
-  prospect: "bg-blue-500/20 text-blue-300",
-  rejected: "bg-red-500/20 text-red-300",
-  closed: "bg-zinc-500/20 text-zinc-400",
-};
-
-const AREA_COLORS: Record<string, string> = {
-  West: "bg-amber-500/20 text-amber-300",
-  South: "bg-violet-500/20 text-violet-300",
-  East: "bg-blue-500/20 text-blue-300",
-  Central: "bg-emerald-500/20 text-emerald-300",
-};
 
 export default function RetailPage() {
   const [devs, setDevs] = useState<Development[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [area, setArea] = useState("");
-  const [status, setStatus] = useState("");
+  const [sfMin, setSfMin] = useState("");
+  const [sfMax, setSfMax] = useState("");
   const [editingTenant, setEditingTenant] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<Partial<Tenant>>({});
+  const [editForm, setEditForm] = useState<{ tenantName: string; areaSF: string }>({ tenantName: "", areaSF: "" });
   const [addingTo, setAddingTo] = useState<number | null>(null);
-  const [newTenant, setNewTenant] = useState({ tenantName: "", comment: "", status: "active" });
+  const [newTenant, setNewTenant] = useState({ tenantName: "", areaSF: "" });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set("search", search);
-    if (area) params.set("area", area);
-    if (status) params.set("status", status);
+    if (sfMin) params.set("sfMin", sfMin);
+    if (sfMax) params.set("sfMax", sfMax);
     const res = await fetch(`/api/retail?${params}`);
     const json = await res.json();
     setDevs(json.data);
     setLoading(false);
-  }, [search, area, status]);
+  }, [search, sfMin, sfMax]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -63,7 +45,7 @@ export default function RetailPage() {
     await fetch(`/api/retail/tenants/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(editForm),
+      body: JSON.stringify({ tenantName: editForm.tenantName, areaSF: editForm.areaSF || null }),
     });
     setEditingTenant(null);
     fetchData();
@@ -79,19 +61,19 @@ export default function RetailPage() {
     await fetch(`/api/retail/${devId}/tenants`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newTenant),
+      body: JSON.stringify({ tenantName: newTenant.tenantName, areaSF: newTenant.areaSF || null }),
     });
     setAddingTo(null);
-    setNewTenant({ tenantName: "", comment: "", status: "active" });
+    setNewTenant({ tenantName: "", areaSF: "" });
     fetchData();
   }
 
   function startEdit(t: Tenant) {
     setEditingTenant(t.id);
-    setEditForm({ tenantName: t.tenantName, comment: t.comment, status: t.status, category: t.category });
+    setEditForm({ tenantName: t.tenantName, areaSF: t.areaSF ? String(t.areaSF) : "" });
   }
 
-  // Compute cross-location tenant map for the "where else" feature
+  // Cross-location map
   const tenantLocations = new Map<string, string[]>();
   for (const d of devs) {
     for (const t of d.tenants) {
@@ -102,30 +84,13 @@ export default function RetailPage() {
   }
 
   const totalTenants = devs.reduce((s, d) => s + d.tenants.length, 0);
-  const uniqueTenants = new Set(devs.flatMap(d => d.tenants.map(t => t.tenantName.toLowerCase().trim()))).size;
   const inputClass = "bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50";
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Retail Tenants</h1>
-        <p className="text-zinc-400 text-sm mt-1">Tenant tracking across Saskatoon retail developments</p>
-      </div>
-
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 text-center">
-          <p className="text-2xl font-bold text-white">{devs.length}</p>
-          <p className="text-xs text-zinc-400">Developments</p>
-        </div>
-        <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 text-center">
-          <p className="text-2xl font-bold text-white">{totalTenants}</p>
-          <p className="text-xs text-zinc-400">Tenant Entries</p>
-        </div>
-        <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 text-center">
-          <p className="text-2xl font-bold text-white">{uniqueTenants}</p>
-          <p className="text-xs text-zinc-400">Unique Tenants</p>
-        </div>
+        <p className="text-zinc-400 text-sm mt-1">Tenant tracking across Saskatoon retail developments · {totalTenants} tenants</p>
       </div>
 
       {/* Filters */}
@@ -133,20 +98,14 @@ export default function RetailPage() {
         <input type="text" placeholder="Search tenants..."
           value={search} onChange={e => setSearch(e.target.value)}
           className={inputClass + " w-64"} />
-        <select value={area} onChange={e => setArea(e.target.value)} className={inputClass}>
-          <option value="">All Areas</option>
-          <option value="West">West</option>
-          <option value="South">South</option>
-          <option value="East">East</option>
-          <option value="Central">Central</option>
-        </select>
-        <select value={status} onChange={e => setStatus(e.target.value)} className={inputClass}>
-          <option value="">All Status</option>
-          <option value="active">Active</option>
-          <option value="prospect">Prospect</option>
-          <option value="rejected">Rejected</option>
-          <option value="closed">Closed/OOB</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-400">SF Range</span>
+          <input type="number" placeholder="Min" value={sfMin} onChange={e => setSfMin(e.target.value)}
+            className={inputClass + " w-24"} />
+          <span className="text-zinc-500">–</span>
+          <input type="number" placeholder="Max" value={sfMax} onChange={e => setSfMax(e.target.value)}
+            className={inputClass + " w-24"} />
+        </div>
       </div>
 
       {loading ? (
@@ -157,14 +116,10 @@ export default function RetailPage() {
         <div className="space-y-6">
           {devs.map(d => (
             <div key={d.id} className="bg-zinc-800/50 border border-zinc-700 rounded-xl overflow-hidden">
-              {/* Development Header */}
               <div className="px-5 py-4 border-b border-zinc-700 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <h2 className="text-lg font-semibold text-white">{d.name}</h2>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${AREA_COLORS[d.area || ""] || "bg-zinc-600 text-zinc-300"}`}>
-                    {d.area || "—"}
-                  </span>
-                  <span className="text-zinc-500 text-xs">{d.tenants.length} tenants</span>
+                  <span className="text-zinc-500 text-xs">{d.tenants.length}</span>
                 </div>
                 <button onClick={() => { setAddingTo(addingTo === d.id ? null : d.id); }}
                   className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors">
@@ -172,27 +127,19 @@ export default function RetailPage() {
                 </button>
               </div>
 
-              {/* Add Tenant */}
               {addingTo === d.id && (
-                <div className="px-5 py-3 bg-zinc-900/50 border-b border-zinc-700 flex flex-wrap gap-2">
+                <div className="px-5 py-3 bg-zinc-900/50 border-b border-zinc-700 flex flex-wrap gap-2 items-center">
                   <input placeholder="Tenant name" value={newTenant.tenantName}
                     onChange={e => setNewTenant({ ...newTenant, tenantName: e.target.value })}
                     className={inputClass + " w-48"} />
-                  <input placeholder="Comment" value={newTenant.comment}
-                    onChange={e => setNewTenant({ ...newTenant, comment: e.target.value })}
-                    className={inputClass + " w-48"} />
-                  <select value={newTenant.status} onChange={e => setNewTenant({ ...newTenant, status: e.target.value })} className={inputClass}>
-                    <option value="active">Active</option>
-                    <option value="prospect">Prospect</option>
-                    <option value="rejected">Rejected</option>
-                    <option value="closed">Closed</option>
-                  </select>
+                  <input type="number" placeholder="SF" value={newTenant.areaSF}
+                    onChange={e => setNewTenant({ ...newTenant, areaSF: e.target.value })}
+                    className={inputClass + " w-24"} />
                   <button onClick={() => addTenant(d.id)} className="px-3 py-2 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg">Save</button>
                   <button onClick={() => setAddingTo(null)} className="px-3 py-2 text-xs text-zinc-400 hover:text-white">Cancel</button>
                 </div>
               )}
 
-              {/* Tenant List */}
               <div className="divide-y divide-zinc-700/50">
                 {d.tenants.map(t => {
                   const otherLocations = (tenantLocations.get(t.tenantName.toLowerCase().trim()) || []).filter(n => n !== d.name);
@@ -200,29 +147,19 @@ export default function RetailPage() {
                     <div key={t.id} className="px-5 py-3 hover:bg-zinc-800/80 transition-colors">
                       {editingTenant === t.id ? (
                         <div className="flex flex-wrap gap-2 items-center">
-                          <input value={editForm.tenantName || ""} onChange={e => setEditForm({ ...editForm, tenantName: e.target.value })}
+                          <input value={editForm.tenantName} onChange={e => setEditForm({ ...editForm, tenantName: e.target.value })}
                             className={inputClass + " w-48"} />
-                          <input value={editForm.comment || ""} onChange={e => setEditForm({ ...editForm, comment: e.target.value })}
-                            placeholder="Comment" className={inputClass + " w-48"} />
-                          <select value={editForm.status || "active"} onChange={e => setEditForm({ ...editForm, status: e.target.value })} className={inputClass}>
-                            <option value="active">Active</option>
-                            <option value="prospect">Prospect</option>
-                            <option value="rejected">Rejected</option>
-                            <option value="closed">Closed</option>
-                          </select>
+                          <input type="number" placeholder="SF" value={editForm.areaSF}
+                            onChange={e => setEditForm({ ...editForm, areaSF: e.target.value })}
+                            className={inputClass + " w-24"} />
                           <button onClick={() => saveTenant(t.id)} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded">Save</button>
                           <button onClick={() => setEditingTenant(null)} className="px-3 py-1.5 text-xs text-zinc-400">Cancel</button>
                         </div>
                       ) : (
                         <div className="flex items-center justify-between gap-3">
                           <div className="flex items-center gap-3 min-w-0 flex-1">
-                            <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_COLORS[t.status] || STATUS_COLORS.active} whitespace-nowrap`}>
-                              {t.status}
-                            </span>
-                            <span className={`text-sm font-medium ${t.status === "closed" ? "text-zinc-500 line-through" : "text-white"}`}>
-                              {t.tenantName}
-                            </span>
-                            {t.comment && <span className="text-zinc-500 text-xs truncate">{t.comment}</span>}
+                            <span className="text-sm font-medium text-white">{t.tenantName}</span>
+                            {t.areaSF && <span className="text-xs text-zinc-500 font-mono">{t.areaSF.toLocaleString()} SF</span>}
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
                             {otherLocations.length > 0 && (

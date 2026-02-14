@@ -10,8 +10,8 @@ export async function GET(req: NextRequest) {
   if (auth instanceof Response) return auth;
 
   const search = req.nextUrl.searchParams.get("search") || "";
-  const area = req.nextUrl.searchParams.get("area") || "";
-  const status = req.nextUrl.searchParams.get("status") || "";
+  const sfMin = req.nextUrl.searchParams.get("sfMin") || "";
+  const sfMax = req.nextUrl.searchParams.get("sfMax") || "";
 
   const developments = db.select().from(schema.retailDevelopments)
     .orderBy(asc(schema.retailDevelopments.sortOrder)).all();
@@ -31,13 +31,13 @@ export async function GET(req: NextRequest) {
     ...d,
     tenants: (tenantMap.get(d.id) || []).filter(t => {
       if (search && !t.tenantName.toLowerCase().includes(search.toLowerCase())) return false;
-      if (status && t.status !== status) return false;
+      if (sfMin && (t.areaSF == null || t.areaSF < Number(sfMin))) return false;
+      if (sfMax && (t.areaSF == null || t.areaSF > Number(sfMax))) return false;
       return true;
     }),
   }));
 
-  if (area) result = result.filter(d => d.area === area);
-  if (search) result = result.filter(d => d.tenants.length > 0);
+  if (search || sfMin || sfMax) result = result.filter(d => d.tenants.length > 0);
 
   return NextResponse.json({ data: result });
 }

@@ -8,10 +8,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ te
   if (auth instanceof Response) return auth;
   const { tenantId } = await params;
   const body = await req.json();
-  const allowed = new Set(["tenantName", "category", "comment", "status"]);
+  const allowed = new Set(["tenantName", "category", "areaSF"]);
   const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   for (const [k, v] of Object.entries(body)) {
-    if (allowed.has(k)) updates[k] = v === "" ? null : v;
+    if (allowed.has(k)) {
+      if (k === "areaSF") updates[k] = v === "" || v === null ? null : Math.round(Number(v));
+      else updates[k] = v === "" ? null : v;
+    }
   }
   await db.update(schema.retailTenants).set(updates).where(eq(schema.retailTenants.id, parseInt(tenantId)));
   return NextResponse.json({ ok: true });

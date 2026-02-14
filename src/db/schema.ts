@@ -421,9 +421,10 @@ export const retailTenants = sqliteTable("retail_tenants", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   developmentId: integer("development_id").notNull(),
   tenantName: text("tenant_name").notNull(),
-  category: text("category"), // QSR, Retail, Medical, Financial, Fitness, etc.
+  category: text("category"),
   comment: text("comment"),
-  status: text("status").default("active"), // active, out-of-business, presented, rejected
+  status: text("status").default("active"),
+  areaSF: integer("area_sf"),
   sortOrder: integer("sort_order").default(0),
   updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
 }, (table) => [

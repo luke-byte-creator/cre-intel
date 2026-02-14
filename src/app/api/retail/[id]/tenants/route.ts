@@ -13,8 +13,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     developmentId: parseInt(id),
     tenantName: body.tenantName,
     category: body.category || null,
-    comment: body.comment || null,
-    status: body.status || "active",
+    areaSF: body.areaSF ? Math.round(Number(body.areaSF)) : null,
   }).run();
 
   return NextResponse.json({ ok: true });
