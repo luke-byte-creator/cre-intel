@@ -9,7 +9,7 @@ interface ProfileHeaderProps {
   title: string;
   subtitle: string;
   badge?: { text: string; color: string };
-  entityType: string;
+  entityType: "company" | "person" | "property";
   entityId: number;
   entityLabel: string;
   watched: boolean;
