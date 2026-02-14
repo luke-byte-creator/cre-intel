@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 
 interface Tenant {
   id: number;
@@ -26,6 +26,7 @@ export default function RetailPage() {
   const [editForm, setEditForm] = useState<{ tenantName: string; areaSF: string }>({ tenantName: "", areaSF: "" });
   const [addingTo, setAddingTo] = useState<number | null>(null);
   const [newTenant, setNewTenant] = useState({ tenantName: "", areaSF: "" });
+  const [showLocations, setShowLocations] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -40,6 +41,20 @@ export default function RetailPage() {
   }, [search, sfMin, sfMax]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Cross-location map
+  const tenantLocations = new Map<string, string[]>();
+  for (const d of devs) {
+    for (const t of d.tenants) {
+      const key = t.tenantName.toLowerCase().trim();
+      if (!tenantLocations.has(key)) tenantLocations.set(key, []);
+      const locs = tenantLocations.get(key)!;
+      if (!locs.includes(d.name)) locs.push(d.name);
+    }
+  }
+
+  // All unique tenant names for autocomplete
+  const allTenantNames = [...new Set(devs.flatMap(d => d.tenants.map(t => t.tenantName)))].sort();
 
   async function saveTenant(id: number) {
     await fetch(`/api/retail/tenants/${id}`, {
@@ -71,16 +86,6 @@ export default function RetailPage() {
   function startEdit(t: Tenant) {
     setEditingTenant(t.id);
     setEditForm({ tenantName: t.tenantName, areaSF: t.areaSF ? String(t.areaSF) : "" });
-  }
-
-  // Cross-location map
-  const tenantLocations = new Map<string, string[]>();
-  for (const d of devs) {
-    for (const t of d.tenants) {
-      const key = t.tenantName.toLowerCase().trim();
-      if (!tenantLocations.has(key)) tenantLocations.set(key, []);
-      tenantLocations.get(key)!.push(d.name);
-    }
   }
 
   const totalTenants = devs.reduce((s, d) => s + d.tenants.length, 0);
@@ -129,9 +134,13 @@ export default function RetailPage() {
 
               {addingTo === d.id && (
                 <div className="px-5 py-3 bg-zinc-900/50 border-b border-zinc-700 flex flex-wrap gap-2 items-center">
-                  <input placeholder="Tenant name" value={newTenant.tenantName}
-                    onChange={e => setNewTenant({ ...newTenant, tenantName: e.target.value })}
-                    className={inputClass + " w-48"} />
+                  <AutocompleteInput
+                    value={newTenant.tenantName}
+                    onChange={v => setNewTenant({ ...newTenant, tenantName: v })}
+                    suggestions={allTenantNames}
+                    placeholder="Tenant name"
+                    className={inputClass + " w-48"}
+                  />
                   <input type="number" placeholder="SF" value={newTenant.areaSF}
                     onChange={e => setNewTenant({ ...newTenant, areaSF: e.target.value })}
                     className={inputClass + " w-24"} />
@@ -161,11 +170,23 @@ export default function RetailPage() {
                             <span className="text-sm font-medium text-white">{t.tenantName}</span>
                             {t.areaSF && <span className="text-xs text-zinc-500 font-mono">{t.areaSF.toLocaleString()} SF</span>}
                           </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="flex items-center gap-2 flex-shrink-0 relative">
                             {otherLocations.length > 0 && (
-                              <span className="text-xs text-zinc-500" title={`Also at: ${otherLocations.join(", ")}`}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setShowLocations(showLocations === t.id ? null : t.id); }}
+                                className="text-xs text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-blue-500/10"
+                              >
                                 📍 +{otherLocations.length}
-                              </span>
+                              </button>
+                            )}
+                            {showLocations === t.id && otherLocations.length > 0 && (
+                              <div className="absolute right-0 top-8 z-20 bg-zinc-900 border border-zinc-600 rounded-lg shadow-xl py-2 px-3 min-w-[200px]"
+                                onClick={e => e.stopPropagation()}>
+                                <p className="text-xs text-zinc-400 mb-1.5 font-medium">Also at:</p>
+                                {otherLocations.map(loc => (
+                                  <p key={loc} className="text-sm text-white py-0.5">{loc}</p>
+                                ))}
+                              </div>
                             )}
                             <button onClick={() => startEdit(t)} className="text-zinc-500 hover:text-white p-1">
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
@@ -181,6 +202,50 @@ export default function RetailPage() {
                 })}
               </div>
             </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AutocompleteInput({ value, onChange, suggestions, placeholder, className }: {
+  value: string; onChange: (v: string) => void; suggestions: string[]; placeholder: string; className: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filtered, setFiltered] = useState<string[]>([]);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (value.length < 2) { setFiltered([]); setOpen(false); return; }
+    const lower = value.toLowerCase();
+    const matches = suggestions.filter(s =>
+      s.toLowerCase().includes(lower) && s.toLowerCase() !== lower
+    ).slice(0, 8);
+    setFiltered(matches);
+    setOpen(matches.length > 0);
+  }, [value, suggestions]);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <input type="text" value={value} onChange={e => onChange(e.target.value)}
+        onFocus={() => { if (filtered.length > 0) setOpen(true); }}
+        placeholder={placeholder} className={className} />
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-30 bg-zinc-900 border border-zinc-600 rounded-lg shadow-xl overflow-hidden min-w-[200px]">
+          {filtered.map(s => (
+            <button key={s} onClick={() => { onChange(s); setOpen(false); }}
+              className="block w-full text-left px-3 py-2 text-sm text-white hover:bg-zinc-700 transition-colors">
+              {s}
+            </button>
           ))}
         </div>
       )}
