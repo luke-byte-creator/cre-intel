@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
 import { generateAcquisitionModel, AcquisitionInputs } from "@/lib/excel/generate-acquisition";
+import { generateQuickModel, QuickInputs } from "@/lib/excel/generate-quick";
 import type { AcquisitionInputs as ExtractedInputs, AuditEntry } from "@/lib/extraction/extract-documents";
 import path from "path";
 import fs from "fs";
@@ -87,7 +88,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!rows.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const analysis = rows[0];
-  const extractedInputs: Partial<ExtractedInputs> = analysis.inputs ? JSON.parse(analysis.inputs) : {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const extractedInputs: Record<string, any> = analysis.inputs ? JSON.parse(analysis.inputs) : {};
 
   // Get audit trail from request body if provided
   let auditTrail: AuditEntry[] | undefined;
@@ -99,8 +101,51 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   try {
-    const excelInputs = mapExtractedToExcel(extractedInputs, auditTrail);
-    const buffer = await generateAcquisitionModel(excelInputs);
+    const mode = (analysis as Record<string, unknown>).mode as string || 'quick';
+    let buffer: Buffer;
+
+    if (mode === 'quick') {
+      const quickInputs: QuickInputs = {
+        propertyName: extractedInputs.propertyName || 'Unnamed Property',
+        address: extractedInputs.propertyAddress || '',
+        city: extractedInputs.city || '',
+        propertyType: extractedInputs.propertyType || '',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        tenants: (extractedInputs.tenants || []).map((t: any) => ({
+          tenantName: t.tenantName || '',
+          suite: t.suite,
+          sf: t.sf || 0,
+          leaseStart: t.leaseStart,
+          leaseExpiry: t.leaseExpiry,
+          baseRentPSF: t.baseRentPSF || 0,
+          baseRentAnnual: t.baseRentAnnual || (t.sf || 0) * (t.baseRentPSF || 0),
+          recoveryType: t.recoveryType,
+          recoveryPSF: t.recoveryPSF,
+        })),
+        operatingCostsPSF: (extractedInputs as any).operatingCostsPSF || 0,
+        propertyTaxPSF: (extractedInputs as any).propertyTaxPSF || 0,
+        propertyTaxIncludedInOpex: (extractedInputs as any).propertyTaxIncludedInOpex || false,
+        vacancyRate: extractedInputs.vacancyRate || 0.05,
+        managementPct: extractedInputs.managementPct || 0.03,
+        capRateLow: (extractedInputs as any).capRateLow || 0.055,
+        capRateMid: (extractedInputs as any).capRateMid || 0.06,
+        capRateHigh: (extractedInputs as any).capRateHigh || 0.065,
+        purchasePrice: (extractedInputs as any).purchasePrice || extractedInputs.askingPrice,
+        capitalReservesPSF: extractedInputs.capitalReservesPSF || 0.25,
+        notes: (extractedInputs as any).notes,
+        auditTrail: auditTrail?.map(a => ({
+          field: a.field,
+          value: a.value || String(a.sourceText || ''),
+          sourceDoc: a.sourceDoc,
+          confidence: a.confidence,
+          reasoning: a.reasoning,
+        })),
+      };
+      buffer = await generateQuickModel(quickInputs);
+    } else {
+      const excelInputs = mapExtractedToExcel(extractedInputs as Partial<ExtractedInputs>, auditTrail);
+      buffer = await generateAcquisitionModel(excelInputs);
+    }
 
     const dir = path.join(process.cwd(), "data", "underwriting", id);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

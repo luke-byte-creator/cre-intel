@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
   const result = await db.insert(schema.underwritingAnalyses).values({
     name: body.name as string,
     assetClass: body.assetClass as string,
+    mode: (body.mode as string) || "quick",
     propertyAddress: (body.propertyAddress as string) || null,
     status: "draft",
     documents: "[]",

@@ -7,10 +7,13 @@ import type { AuditEntry, ConflictEntry, TenantRow } from "@/lib/extraction/extr
 
 type ViewState = "upload" | "review" | "complete";
 
+type AnalysisMode = "quick" | "institutional";
+
 interface Analysis {
   id: number;
   name: string;
   assetClass: string;
+  mode?: AnalysisMode;
   status: string;
   inputs?: string;
   createdAt: string;
@@ -422,6 +425,7 @@ export default function UnderwritePage() {
   const [currentId, setCurrentId] = useState<number | null>(null);
 
   // --- Upload state ---
+  const [mode, setMode] = useState<AnalysisMode>("quick");
   const [assetClass, setAssetClass] = useState("office_retail_industrial");
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [extracting, setExtracting] = useState(false);
@@ -488,7 +492,7 @@ export default function UnderwritePage() {
       const res = await fetch("/api/underwrite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: files[0].name.replace(/\.[^.]+$/, ""), assetClass }),
+        body: JSON.stringify({ name: files[0].name.replace(/\.[^.]+$/, ""), assetClass: mode === "quick" ? "quick" : assetClass, mode }),
       });
       const analysis = await res.json();
       if (!res.ok) throw new Error(analysis.error);
@@ -546,7 +550,7 @@ export default function UnderwritePage() {
     setFieldMeta(meta);
   }
 
-  function updateField(key: string, value: string | number | undefined) {
+  function updateField(key: string, value: string | number | boolean | undefined) {
     setInputs(prev => ({ ...prev, [key]: value }));
     setFieldMeta(prev => ({
       ...prev,
@@ -570,6 +574,7 @@ export default function UnderwritePage() {
   async function openAnalysis(a: Analysis) {
     setCurrentId(a.id);
     setAnalysisName(a.name);
+    setMode((a.mode as AnalysisMode) || (a.assetClass === "quick" ? "quick" : "institutional"));
 
     if (a.status === "complete") {
       const parsed = a.inputs ? JSON.parse(a.inputs) : {};
@@ -586,6 +591,7 @@ export default function UnderwritePage() {
     setConflicts([]);
     setAuditTrail([]);
     setFieldMeta({});
+    setMode(data.mode || (data.assetClass === "quick" ? "quick" : "institutional"));
     setView(data.status === "extracted" || data.status === "reviewed" ? "review" : "upload");
   }
 
@@ -682,8 +688,34 @@ export default function UnderwritePage() {
           <p className="text-sm text-muted mt-1">AI-Powered Financial Modeling</p>
         </div>
 
+        {/* Mode Toggle */}
+        <div className="flex gap-1 bg-card border border-card-border rounded-lg p-1 w-fit">
+          <button
+            onClick={() => setMode("quick")}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              mode === "quick" ? "bg-accent text-white shadow-sm" : "text-muted hover:text-foreground"
+            }`}
+          >
+            Quick Mode
+          </button>
+          <button
+            onClick={() => setMode("institutional")}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              mode === "institutional" ? "bg-accent text-white shadow-sm" : "text-muted hover:text-foreground"
+            }`}
+          >
+            Institutional Mode
+          </button>
+        </div>
+        <p className="text-xs text-muted -mt-3">
+          {mode === "quick"
+            ? "Upload leases and documents. We'll build a rent roll and income summary."
+            : "Full institutional-grade acquisition model with DCF analysis."}
+        </p>
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Asset Class */}
+          {/* Asset Class (institutional only) */}
+          {mode === "institutional" && (
           <div className="lg:col-span-3">
             <div className="bg-card border border-card-border rounded-xl p-5">
               <h2 className="text-sm font-semibold text-foreground mb-3">Asset Class</h2>
@@ -712,9 +744,10 @@ export default function UnderwritePage() {
               </div>
             </div>
           </div>
+          )}
 
           {/* Upload */}
-          <div className="lg:col-span-5">
+          <div className={mode === "quick" ? "lg:col-span-8" : "lg:col-span-5"}>
             <div className="bg-card border border-card-border rounded-xl p-5">
               <h2 className="text-sm font-semibold text-foreground mb-3">Documents</h2>
               <div
@@ -802,7 +835,13 @@ export default function UnderwritePage() {
                         </span>
                       </div>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[11px] text-muted">{a.assetClass.replace(/_/g, " ")}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                          (a.mode || (a.assetClass === "quick" ? "quick" : "institutional")) === "quick"
+                            ? "bg-blue-500/15 text-blue-400"
+                            : "bg-purple-500/15 text-purple-400"
+                        }`}>
+                          {(a.mode || (a.assetClass === "quick" ? "quick" : "institutional")) === "quick" ? "Quick" : "Institutional"}
+                        </span>
                         <span className="text-[11px] text-muted/40">·</span>
                         <span className="text-[11px] text-muted/60">{formatDate(a.createdAt)}</span>
                       </div>
@@ -820,37 +859,301 @@ export default function UnderwritePage() {
   // ─── REVIEW VIEW ────────────────────────────────────────────────────────
 
   if (view === "review") {
+    // Shared header for both modes
+    const reviewHeader = (
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => { setView("upload"); setCurrentId(null); }}
+          className="text-sm text-muted hover:text-foreground transition flex items-center gap-1"
+        >
+          ← Back
+        </button>
+        <input
+          type="text"
+          value={analysisName}
+          onChange={e => {
+            setAnalysisName(e.target.value);
+            if (currentId) {
+              fetch(`/api/underwrite/${currentId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: e.target.value }),
+              }).catch(() => {});
+            }
+          }}
+          className="text-xl font-bold text-foreground bg-transparent border-b border-transparent hover:border-gray-600 focus:border-accent transition px-1"
+        />
+        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+          mode === "quick" ? "bg-blue-500/15 text-blue-400" : "bg-accent/15 text-accent"
+        }`}>
+          {mode === "quick" ? "Quick" : assetClass.replace(/_/g, " ")}
+        </span>
+      </div>
+    );
+
+    // ─── QUICK MODE REVIEW ────────────────────────────────────────────────
+    if (mode === "quick") {
+      const tenants: TenantRow[] = inputs.tenants || [];
+      const totalSF = tenants.reduce((s: number, t: TenantRow) => s + (t.sf || 0), 0);
+      const totalRent = tenants.reduce((s: number, t: TenantRow) => s + (t.baseRentAnnual || 0), 0);
+      const wtdAvgRent = totalSF > 0 ? totalRent / totalSF : 0;
+      const totalRecovery = tenants.reduce((s: number, t: TenantRow) => s + ((t.recoveryPSF || 0) * (t.sf || 0)), 0);
+
+      // WALT calculation
+      const now = Date.now();
+      let waltNum = 0, waltDen = 0;
+      tenants.forEach((t: TenantRow) => {
+        if (t.leaseExpiry && t.baseRentAnnual) {
+          const expDate = new Date(t.leaseExpiry);
+          if (!isNaN(expDate.getTime())) {
+            const yrs = Math.max(0, (expDate.getTime() - now) / (365.25 * 24 * 60 * 60 * 1000));
+            waltNum += yrs * t.baseRentAnnual;
+            waltDen += t.baseRentAnnual;
+          }
+        }
+      });
+      const walt = waltDen > 0 ? waltNum / waltDen : 0;
+      const occupancy = totalSF > 0 ? 100 : 0; // all listed tenants = occupied
+
+      return (
+        <div className="space-y-4">
+          {reviewHeader}
+
+          {/* Section 1: Property (compact row) */}
+          <div className="bg-card border border-card-border rounded-xl p-4">
+            <h3 className="text-xs font-semibold text-muted mb-2 uppercase tracking-wide">Property</h3>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="text-[11px] text-gray-500">Property Name</label>
+                <input
+                  type="text"
+                  value={inputs.propertyName || ""}
+                  onChange={e => updateField("propertyName", e.target.value)}
+                  className="w-full bg-white/[0.04] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100"
+                  placeholder="Property name"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-gray-500">Address / City</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={inputs.propertyAddress || ""}
+                    onChange={e => updateField("propertyAddress", e.target.value)}
+                    className="flex-1 bg-white/[0.04] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100"
+                    placeholder="Address"
+                  />
+                  <input
+                    type="text"
+                    value={inputs.city || ""}
+                    onChange={e => updateField("city", e.target.value)}
+                    className="w-32 bg-white/[0.04] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100"
+                    placeholder="City"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] text-gray-500">Property Type</label>
+                <select
+                  value={inputs.propertyType || ""}
+                  onChange={e => updateField("propertyType", e.target.value)}
+                  className="w-full bg-white/[0.04] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100"
+                >
+                  <option value="">—</option>
+                  <option value="Office">Office</option>
+                  <option value="Retail">Retail</option>
+                  <option value="Industrial">Industrial</option>
+                  <option value="Mixed-Use">Mixed-Use</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Rent Roll */}
+          <div className="bg-card border border-card-border rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-muted uppercase tracking-wide">Rent Roll</h3>
+              <button
+                onClick={() => {
+                  const updated = [...tenants, { tenantName: "", suite: "", sf: 0, leaseStart: "", leaseExpiry: "", baseRentPSF: 0, baseRentAnnual: 0, recoveryType: "Net" } as TenantRow];
+                  setInputs(prev => ({ ...prev, tenants: updated }));
+                  debouncedSave();
+                }}
+                className="text-xs text-accent hover:text-accent/80 transition"
+              >+ Add Tenant</button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-500 border-b border-gray-700">
+                    <th className="text-left py-1.5 px-1 font-medium">Tenant</th>
+                    <th className="text-left py-1.5 px-1 font-medium">Suite</th>
+                    <th className="text-right py-1.5 px-1 font-medium">SF</th>
+                    <th className="text-left py-1.5 px-1 font-medium">Lease Start</th>
+                    <th className="text-left py-1.5 px-1 font-medium">Lease Expiry</th>
+                    <th className="text-right py-1.5 px-1 font-medium">Rent PSF</th>
+                    <th className="text-right py-1.5 px-1 font-medium">Annual Rent</th>
+                    <th className="text-left py-1.5 px-1 font-medium">Recovery</th>
+                    <th className="text-right py-1.5 px-1 font-medium">Rec PSF</th>
+                    <th className="py-1.5 px-1"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tenants.map((t: TenantRow, i: number) => {
+                    const tMeta = fieldMeta[`tenant_${i}`];
+                    return (
+                      <tr key={i} className="border-b border-gray-800 hover:bg-white/[0.02]">
+                        <td className="py-1 px-1 flex items-center gap-1">
+                          {tMeta && <ConfidenceDot meta={tMeta} />}
+                          <input className="w-full bg-transparent text-gray-100 text-xs" value={t.tenantName} onChange={e => {
+                            const updated = [...tenants]; updated[i] = { ...updated[i], tenantName: e.target.value };
+                            setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
+                          }} />
+                        </td>
+                        <td className="py-1 px-1"><input className="w-16 bg-transparent text-gray-100 text-xs" value={t.suite || ""} onChange={e => {
+                          const updated = [...tenants]; updated[i] = { ...updated[i], suite: e.target.value };
+                          setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
+                        }} /></td>
+                        <td className="py-1 px-1"><input className="w-16 bg-transparent text-gray-100 text-xs text-right" type="number" value={t.sf || ""} onChange={e => {
+                          const sf = Number(e.target.value) || 0;
+                          const updated = [...tenants]; updated[i] = { ...updated[i], sf, baseRentAnnual: sf * (updated[i].baseRentPSF || 0) };
+                          setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
+                        }} /></td>
+                        <td className="py-1 px-1"><input className="w-24 bg-transparent text-gray-100 text-xs" value={t.leaseStart || ""} onChange={e => {
+                          const updated = [...tenants]; updated[i] = { ...updated[i], leaseStart: e.target.value };
+                          setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
+                        }} /></td>
+                        <td className="py-1 px-1"><input className="w-24 bg-transparent text-gray-100 text-xs" value={t.leaseExpiry || ""} onChange={e => {
+                          const updated = [...tenants]; updated[i] = { ...updated[i], leaseExpiry: e.target.value };
+                          setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
+                        }} /></td>
+                        <td className="py-1 px-1"><input className="w-16 bg-transparent text-gray-100 text-xs text-right" type="number" step="0.01" value={t.baseRentPSF || ""} onChange={e => {
+                          const psf = Number(e.target.value) || 0;
+                          const updated = [...tenants]; updated[i] = { ...updated[i], baseRentPSF: psf, baseRentAnnual: (updated[i].sf || 0) * psf };
+                          setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
+                        }} /></td>
+                        <td className="py-1 px-1 text-right text-gray-300">{formatNumber(t.baseRentAnnual)}</td>
+                        <td className="py-1 px-1">
+                          <select className="bg-transparent text-gray-100 text-xs" value={t.recoveryType || ""} onChange={e => {
+                            const updated = [...tenants]; updated[i] = { ...updated[i], recoveryType: e.target.value };
+                            setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
+                          }}>
+                            <option value="Net">Net</option>
+                            <option value="Gross">Gross</option>
+                            <option value="Semi-Gross">Semi-Gross</option>
+                          </select>
+                        </td>
+                        <td className="py-1 px-1"><input className="w-14 bg-transparent text-gray-100 text-xs text-right" type="number" step="0.01" value={t.recoveryPSF || ""} onChange={e => {
+                          const updated = [...tenants]; updated[i] = { ...updated[i], recoveryPSF: Number(e.target.value) || 0 };
+                          setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
+                        }} /></td>
+                        <td className="py-1 px-1">
+                          <button onClick={() => {
+                            const updated = tenants.filter((_: TenantRow, j: number) => j !== i);
+                            setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
+                          }} className="text-gray-600 hover:text-red-400 text-xs">✕</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-gray-600 text-gray-300 font-medium text-xs">
+                    <td className="py-1.5 px-1" colSpan={2}>Summary</td>
+                    <td className="py-1.5 px-1 text-right">{formatNumber(totalSF)} SF</td>
+                    <td colSpan={3} className="py-1.5 px-1 text-center text-gray-500">
+                      {occupancy}% occ · ${wtdAvgRent.toFixed(2)} wtd avg · {walt.toFixed(1)} yr WALT
+                    </td>
+                    <td className="py-1.5 px-1 text-right">${formatNumber(totalRent)}</td>
+                    <td colSpan={3} className="py-1.5 px-1 text-right text-gray-500">
+                      Rec: ${formatNumber(totalRecovery)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          {/* Section 3: Quick Assumptions */}
+          <div className="bg-card border border-card-border rounded-xl p-4">
+            <h3 className="text-xs font-semibold text-muted mb-3 uppercase tracking-wide">Assumptions</h3>
+            <div className="grid grid-cols-2 gap-x-8 gap-y-2 max-w-2xl">
+              {[
+                { key: "operatingCostsPSF", label: "Operating Costs PSF", placeholder: "0.00", type: "number" },
+                { key: "capitalReservesPSF", label: "Capital Reserves PSF", placeholder: "0.25", type: "number" },
+                { key: "propertyTaxPSF", label: "Property Tax PSF", placeholder: "0.00", type: "number" },
+                { key: "vacancyRate", label: "Vacancy Rate (%)", placeholder: "5", type: "pct" },
+                { key: "managementPct", label: "Management Fee (%)", placeholder: "3", type: "pct" },
+                { key: "capRateLow", label: "Cap Rate Low (%)", placeholder: "5.50", type: "pct" },
+                { key: "capRateMid", label: "Cap Rate Mid (%)", placeholder: "6.00", type: "pct" },
+                { key: "capRateHigh", label: "Cap Rate High (%)", placeholder: "6.50", type: "pct" },
+                { key: "purchasePrice", label: "Purchase Price ($)", placeholder: "Optional", type: "number" },
+              ].map(f => (
+                <div key={f.key} className="flex items-center gap-2 py-1">
+                  <label className="w-40 shrink-0 text-xs text-gray-400">{f.label}</label>
+                  <input
+                    type="text"
+                    value={f.type === "pct" ? (inputs[f.key] !== undefined && inputs[f.key] !== null ? (inputs[f.key] * 100).toFixed(2) : "") : (inputs[f.key] ?? "")}
+                    onChange={e => {
+                      const raw = e.target.value.replace(/[,$\s]/g, "");
+                      if (!raw) { updateField(f.key, undefined); return; }
+                      const n = Number(raw);
+                      if (isNaN(n)) return;
+                      updateField(f.key, f.type === "pct" ? n / 100 : n);
+                    }}
+                    placeholder={f.placeholder}
+                    className="w-28 bg-white/[0.04] border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 text-right"
+                  />
+                </div>
+              ))}
+              <div className="flex items-center gap-2 py-1">
+                <label className="w-40 shrink-0 text-xs text-gray-400">Tax in Operating Costs?</label>
+                <input
+                  type="checkbox"
+                  checked={inputs.propertyTaxIncludedInOpex || false}
+                  onChange={e => updateField("propertyTaxIncludedInOpex", e.target.checked)}
+                  className="accent-accent"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 4: Notes */}
+          <div className="bg-card border border-card-border rounded-xl p-4">
+            <h3 className="text-xs font-semibold text-muted mb-2 uppercase tracking-wide">Notes</h3>
+            <textarea
+              value={inputs.notes || ""}
+              onChange={e => updateField("notes", e.target.value)}
+              rows={3}
+              className="w-full bg-white/[0.04] border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 resize-none"
+              placeholder="Free-form notes (appears on output)..."
+            />
+          </div>
+
+          {/* Generate */}
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="px-6 py-2.5 rounded-lg text-sm font-semibold bg-accent text-white hover:bg-accent/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {generating ? (
+              <span className="flex items-center gap-2">
+                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="40 20" /></svg>
+                Generating...
+              </span>
+            ) : "Generate Quick Analysis ↓"}
+          </button>
+        </div>
+      );
+    }
+
+    // ─── INSTITUTIONAL MODE REVIEW ────────────────────────────────────────
     const currentFields = TAB_FIELDS[activeTab];
 
     return (
       <div className="space-y-4">
-        {/* Header */}
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => { setView("upload"); setCurrentId(null); }}
-            className="text-sm text-muted hover:text-foreground transition flex items-center gap-1"
-          >
-            ← Back
-          </button>
-          <input
-            type="text"
-            value={analysisName}
-            onChange={e => {
-              setAnalysisName(e.target.value);
-              if (currentId) {
-                fetch(`/api/underwrite/${currentId}`, {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ name: e.target.value }),
-                }).catch(() => {});
-              }
-            }}
-            className="text-xl font-bold text-foreground bg-transparent border-b border-transparent hover:border-gray-600 focus:border-accent transition px-1"
-          />
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/15 text-accent font-medium">
-            {assetClass.replace(/_/g, " ")}
-          </span>
-        </div>
+        {reviewHeader}
 
         {/* Summary bar */}
         <div className="bg-card border border-card-border rounded-xl px-5 py-3 flex items-center gap-6 text-xs text-gray-400">

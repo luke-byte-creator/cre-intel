@@ -78,7 +78,18 @@ export default function TradeRecordsPage() {
       const res = await fetch("/api/trade-records/extract", { method: "POST", body: formData });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Extraction failed"); }
       const result = await res.json();
-      setExtractedData(result.data);
+      // Auto-generate commission lines from lease schedule if not already present
+      const d = result.data;
+      if (trType === "lease" && d.leaseSchedule && !d.commissionLines) {
+        const rentPeriods = d.leaseSchedule.filter((s: { rentPSF: number }) => s.rentPSF > 0);
+        d.commissionLines = rentPeriods.map((s: { startDate: string; endDate: string; rentPSF: number }, i: number) => {
+          const start = new Date(s.startDate);
+          const end = new Date(s.endDate);
+          const years = Math.max(1, Math.round((end.getTime() - start.getTime()) / (365.25 * 24 * 3600 * 1000)));
+          return { ratePSF: s.rentPSF, termYears: years, commissionRate: i === 0 ? 0.05 : 0.02 };
+        });
+      }
+      setExtractedData(d);
       setStage("review");
     } catch (err) {
       setError((err as Error).message);
@@ -492,10 +503,51 @@ function LeaseReviewForm({ data, updateField }: { data: any; updateField: (path:
           <Field label="TI PSF" value={data.tenantInducementPSF} onChange={v => updateField("tenantInducementPSF", Number(v))} />
           <Field label="Taxes & OpCosts PSF" value={data.taxesOperatingCostsPSF} onChange={v => updateField("taxesOperatingCostsPSF", Number(v))} />
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="Commission Rate (decimal)" value={data.commissionRate} onChange={v => updateField("commissionRate", Number(v))} />
+        <div className="grid grid-cols-2 gap-3">
           <SelectField label="Engaged By" value={data.engagedBy} options={["Landlord", "Tenant"]} onChange={v => updateField("engagedBy", v)} />
           <SelectField label="Paid By" value={data.paidBy} options={["Landlord", "Tenant"]} onChange={v => updateField("paidBy", v)} />
+        </div>
+        <div className="mt-3">
+          <label className="text-xs text-muted mb-1 block">Commission Lines (SF × Rate PSF × Term Years × Commission %)</label>
+          <table className="w-full text-sm border border-card-border">
+            <thead><tr className="bg-card-border/30">
+              <th className="px-2 py-1 text-left">Rate PSF</th>
+              <th className="px-2 py-1 text-left">Term (yrs)</th>
+              <th className="px-2 py-1 text-left">Commission %</th>
+              <th className="px-2 py-1 w-8"></th>
+            </tr></thead>
+            <tbody>
+              {(data.commissionLines || []).map((line: { ratePSF: number; termYears: number; commissionRate: number }, idx: number) => (
+                <tr key={idx} className="border-t border-card-border">
+                  <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.ratePSF ?? ""} onChange={e => {
+                    const lines = [...(data.commissionLines || [])];
+                    lines[idx] = { ...lines[idx], ratePSF: Number(e.target.value) };
+                    updateField("commissionLines", lines);
+                  }} /></td>
+                  <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="1" value={line.termYears ?? ""} onChange={e => {
+                    const lines = [...(data.commissionLines || [])];
+                    lines[idx] = { ...lines[idx], termYears: Number(e.target.value) };
+                    updateField("commissionLines", lines);
+                  }} /></td>
+                  <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.commissionRate ?? ""} onChange={e => {
+                    const lines = [...(data.commissionLines || [])];
+                    lines[idx] = { ...lines[idx], commissionRate: Number(e.target.value) };
+                    updateField("commissionLines", lines);
+                  }} /></td>
+                  <td className="px-1 py-1 text-center"><button className="text-red-400 hover:text-red-300" onClick={() => {
+                    const lines = [...(data.commissionLines || [])];
+                    lines.splice(idx, 1);
+                    updateField("commissionLines", lines);
+                  }}>×</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button className="mt-1 text-xs text-blue-400 hover:text-blue-300" onClick={() => {
+            const lines = [...(data.commissionLines || [])];
+            lines.push({ ratePSF: data.baseAnnualRentPSF || 0, termYears: 5, commissionRate: lines.length === 0 ? 0.05 : 0.02 });
+            updateField("commissionLines", lines);
+          }}>+ Add Commission Line</button>
         </div>
       </div>
 

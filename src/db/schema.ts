@@ -494,6 +494,7 @@ export const underwritingAnalyses = sqliteTable("underwriting_analyses", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
   assetClass: text("asset_class").notNull(),
+  mode: text("mode").notNull().$default(() => "quick"),
   propertyAddress: text("property_address"),
   status: text("status").notNull().default("draft"),
   inputs: text("inputs"),
