@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import DealCalculator from "@/components/DealCalculator";
+import DealCalculator, { DealEconomicsData } from "@/components/DealCalculator";
 
 interface Todo {
   id: number;
@@ -31,6 +31,7 @@ interface Deal {
   stage: string;
   stageEnteredAt: string;
   notes: string | null;
+  dealEconomics: string | null;
   updatedAt: string;
 }
 
@@ -423,6 +424,129 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
   );
 }
 
+/* Economics summary shown on deal card */
+function EconomicsSummary({ data }: { data: DealEconomicsData }) {
+  const r = data.results;
+  return (
+    <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+      <span className="text-[10px] bg-emerald-900/40 text-emerald-400 rounded px-1.5 py-0.5">
+        NER ${r.nerYear.toFixed(2)}/SF
+      </span>
+      <span className="text-[10px] bg-blue-900/40 text-blue-400 rounded px-1.5 py-0.5">
+        Comm ${r.commission >= 1000 ? `$${(r.commission / 1000).toFixed(1)}k` : `$${r.commission.toFixed(0)}`}
+      </span>
+      <span className="text-[10px] bg-zinc-700/60 text-zinc-400 rounded px-1.5 py-0.5">
+        📊
+      </span>
+    </div>
+  );
+}
+
+/* Modal overlay for deal calculator */
+function EconomicsModal({ deal, onClose, onSaved }: { deal: Deal; onClose: () => void; onSaved: () => void }) {
+  const existing: DealEconomicsData | null = deal.dealEconomics ? JSON.parse(deal.dealEconomics) : null;
+
+  const handleSave = async (data: DealEconomicsData) => {
+    await fetch(`/api/deals/${deal.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dealEconomics: JSON.stringify(data) }),
+    });
+    onSaved();
+    onClose();
+  };
+
+  const handleRemove = async () => {
+    await fetch(`/api/deals/${deal.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dealEconomics: null }),
+    });
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-base font-semibold text-white">Deal Economics</h3>
+            <p className="text-xs text-zinc-400">{deal.tenantName} — {deal.propertyAddress || "No address"}</p>
+          </div>
+          <button onClick={onClose} className="text-zinc-500 hover:text-white text-lg px-2">✕</button>
+        </div>
+        <DealCalculator initialData={existing} onSave={handleSave} onRemove={handleRemove} compact />
+      </div>
+    </div>
+  );
+}
+
+/* Standalone calculator tab with optional deal linking */
+function DealCalculatorWithDealLink({ deals, onSaved }: { deals: Deal[]; onSaved: () => void }) {
+  const [selectedDealId, setSelectedDealId] = useState<number | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const selectedDeal = selectedDealId ? deals.find(d => d.id === selectedDealId) : null;
+  const existingData: DealEconomicsData | null = selectedDeal?.dealEconomics ? JSON.parse(selectedDeal.dealEconomics) : null;
+
+  const handleSave = async (data: DealEconomicsData) => {
+    if (!selectedDealId) return;
+    await fetch(`/api/deals/${selectedDealId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dealEconomics: JSON.stringify(data) }),
+    });
+    onSaved();
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleRemove = async () => {
+    if (!selectedDealId) return;
+    await fetch(`/api/deals/${selectedDealId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dealEconomics: null }),
+    });
+    onSaved();
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Deal picker */}
+      <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-4">
+        <div className="flex items-center gap-3">
+          <label className="text-xs text-zinc-400 whitespace-nowrap">Link to Deal</label>
+          <select
+            value={selectedDealId ?? ""}
+            onChange={e => { setSelectedDealId(e.target.value ? Number(e.target.value) : null); setSaved(false); }}
+            className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-0"
+          >
+            <option value="">None — standalone calculation</option>
+            {deals.map(d => (
+              <option key={d.id} value={d.id}>
+                {d.tenantName}{d.propertyAddress ? ` — ${d.propertyAddress}` : ""} ({STAGE_LABELS[d.stage]})
+              </option>
+            ))}
+          </select>
+          {saved && <span className="text-xs text-emerald-400">✓ Saved</span>}
+        </div>
+        {selectedDeal?.dealEconomics && (
+          <p className="text-[10px] text-zinc-500 mt-2">This deal has saved economics. Changes below will update on save.</p>
+        )}
+      </div>
+
+      <DealCalculator
+        key={selectedDealId ?? "standalone"}
+        initialData={existingData}
+        onSave={selectedDealId ? handleSave : undefined}
+        onRemove={selectedDealId && existingData ? handleRemove : undefined}
+      />
+    </div>
+  );
+}
+
 export default function PipelinePage() {
   const [activeTab, setActiveTab] = useState<"pipeline" | "calculator">("pipeline");
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -433,6 +557,7 @@ export default function PipelinePage() {
   const [newComment, setNewComment] = useState("");
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [form, setForm] = useState({ tenantName: "", propertyAddress: "", stage: "prospect", initialNote: "" });
+  const [economicsDealId, setEconomicsDealId] = useState<number | null>(null);
 
   const fetchDeals = useCallback(async () => {
     const res = await fetch("/api/deals");
@@ -531,8 +656,21 @@ export default function PipelinePage() {
       </div>
 
       {activeTab === "calculator" && (
-        <DealCalculator />
+        <DealCalculatorWithDealLink deals={deals} onSaved={fetchDeals} />
       )}
+
+      {/* Economics modal */}
+      {economicsDealId && (() => {
+        const deal = deals.find(d => d.id === economicsDealId);
+        if (!deal) return null;
+        return (
+          <EconomicsModal
+            deal={deal}
+            onClose={() => setEconomicsDealId(null)}
+            onSaved={fetchDeals}
+          />
+        );
+      })()}
 
       {activeTab === "pipeline" && (<>
       <div className="flex items-center justify-between">
@@ -595,6 +733,9 @@ export default function PipelinePage() {
                           </p>
                         )}
                         <p className="text-[10px] text-muted/50 mt-1.5">{days === 0 ? "Updated today" : `${days}d since update`}</p>
+                        {deal.dealEconomics && (() => {
+                          try { return <EconomicsSummary data={JSON.parse(deal.dealEconomics)} />; } catch { return null; }
+                        })()}
                       </div>
 
                       {isExpanded && (
@@ -629,6 +770,16 @@ export default function PipelinePage() {
                               className="flex-1 bg-background border border-card-border rounded px-2 py-1.5 text-xs text-foreground placeholder:text-muted"
                             />
                             <button onClick={() => handleAddComment(deal)} className="px-3 py-1.5 bg-accent text-white rounded text-xs font-medium hover:bg-accent/80">Add</button>
+                          </div>
+
+                          {/* Deal Economics */}
+                          <div className="pt-1">
+                            <button
+                              onClick={() => setEconomicsDealId(deal.id)}
+                              className="text-xs text-accent hover:text-accent/80"
+                            >
+                              📊 {deal.dealEconomics ? "Edit Economics" : "Add Economics"}
+                            </button>
                           </div>
 
                           {/* Generate Email */}

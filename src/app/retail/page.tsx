@@ -18,6 +18,7 @@ interface Tenant {
   termMonths: number | null;
   rentSteps: string | null;
   leaseType: string | null;
+  operatingCosts: number | null;
 }
 
 interface Development {
@@ -26,6 +27,11 @@ interface Development {
   area: string | null;
   address: string | null;
   tenants: Tenant[];
+}
+
+interface RentStep {
+  month: string;
+  rent: string;
 }
 
 type EditForm = {
@@ -39,6 +45,7 @@ type EditForm = {
   termMonths: string;
   rentSteps: string;
   leaseType: string;
+  operatingCosts: string;
   comment: string;
   status: string;
 };
@@ -46,8 +53,22 @@ type EditForm = {
 const emptyForm: EditForm = {
   tenantName: "", areaSF: "", unitSuite: "", netRentPSF: "", annualRent: "",
   leaseStart: "", leaseExpiry: "", termMonths: "", rentSteps: "", leaseType: "",
-  comment: "", status: "active",
+  operatingCosts: "", comment: "", status: "active",
 };
+
+function parseRentSteps(raw: string | null): RentStep[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {}
+  return [];
+}
+
+function serializeRentSteps(steps: RentStep[]): string {
+  const valid = steps.filter(s => s.month && s.rent);
+  return valid.length > 0 ? JSON.stringify(valid) : "";
+}
 
 function addMonthsExpiry(start: string, months: number): string {
   const d = new Date(start + "T00:00:00");
@@ -130,6 +151,10 @@ export default function RetailPage() {
   const [addingTo, setAddingTo] = useState<number | null>(null);
   const [newTenant, setNewTenant] = useState<EditForm>(emptyForm);
   const [showLocations, setShowLocations] = useState<number | null>(null);
+  const [showAddCenter, setShowAddCenter] = useState(false);
+  const [newCenter, setNewCenter] = useState({ name: "", area: "", address: "" });
+  const [editingDev, setEditingDev] = useState<number | null>(null);
+  const [editDevForm, setEditDevForm] = useState({ name: "", area: "", address: "" });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -226,9 +251,37 @@ export default function RetailPage() {
       termMonths: t.termMonths != null ? String(t.termMonths) : "",
       rentSteps: t.rentSteps || "",
       leaseType: t.leaseType || "",
+      operatingCosts: t.operatingCosts != null ? String(t.operatingCosts) : "",
       comment: t.comment || "",
       status: t.status || "active",
     });
+  }
+
+  async function addCenter() {
+    if (!newCenter.name.trim()) return;
+    await fetch("/api/retail", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newCenter),
+    });
+    setShowAddCenter(false);
+    setNewCenter({ name: "", area: "", address: "" });
+    fetchData();
+  }
+
+  async function saveDevEdit(devId: number) {
+    await fetch(`/api/retail/${devId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(editDevForm),
+    });
+    setEditingDev(null);
+    fetchData();
+  }
+
+  function startDevEdit(d: Development) {
+    setEditingDev(d.id);
+    setEditDevForm({ name: d.name, area: d.area || "", address: d.address || "" });
   }
 
   const totalTenants = devs.reduce((s, d) => s + d.tenants.length, 0);
@@ -236,10 +289,42 @@ export default function RetailPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Retail Tenants</h1>
-        <p className="text-zinc-400 text-sm mt-1">Tenant tracking across Saskatoon retail developments · {totalTenants} tenants</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Retail Tenants</h1>
+          <p className="text-zinc-400 text-sm mt-1">Tenant tracking across Saskatoon retail developments · {totalTenants} tenants</p>
+        </div>
+        <button onClick={() => setShowAddCenter(!showAddCenter)}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors">
+          {showAddCenter ? "Cancel" : "+ Add Center"}
+        </button>
       </div>
+
+      {showAddCenter && (
+        <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-4 space-y-3">
+          <div className="flex flex-wrap gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-xs text-zinc-400 mb-1 block">Center Name *</label>
+              <input value={newCenter.name} onChange={e => setNewCenter({ ...newCenter, name: e.target.value })}
+                placeholder="e.g. Saskatoon West" className={inputClass + " w-full"} />
+            </div>
+            <div className="w-32">
+              <label className="text-xs text-zinc-400 mb-1 block">Area</label>
+              <input value={newCenter.area} onChange={e => setNewCenter({ ...newCenter, area: e.target.value })}
+                placeholder="e.g. West" className={inputClass + " w-full"} />
+            </div>
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-xs text-zinc-400 mb-1 block">Address</label>
+              <input value={newCenter.address} onChange={e => setNewCenter({ ...newCenter, address: e.target.value })}
+                placeholder="Address" className={inputClass + " w-full"} />
+            </div>
+          </div>
+          <button onClick={addCenter} disabled={!newCenter.name.trim()}
+            className="px-4 py-2 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium disabled:opacity-50">
+            Create Center
+          </button>
+        </div>
+      )}
 
       {/* Expiry Tracking Summary */}
       {(expired.length > 0 || expiring6.length > 0 || expiring12.length > 0) && (
@@ -297,16 +382,45 @@ export default function RetailPage() {
         <div className="space-y-6">
           {devs.map(d => (
             <div key={d.id} className="bg-zinc-800/50 border border-zinc-700 rounded-xl overflow-hidden">
-              <div className="px-5 py-4 border-b border-zinc-700 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-lg font-semibold text-white">{d.name}</h2>
-                  <span className="text-zinc-500 text-xs">{d.tenants.length}</span>
-                  {d.area && <span className="text-xs text-zinc-500 bg-zinc-700 px-2 py-0.5 rounded">{d.area}</span>}
-                </div>
-                <button onClick={() => { setAddingTo(addingTo === d.id ? null : d.id); setNewTenant({ ...emptyForm }); }}
-                  className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors">
-                  + Add
-                </button>
+              <div className="px-5 py-4 border-b border-zinc-700">
+                {editingDev === d.id ? (
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="flex-1 min-w-[180px]">
+                      <label className="text-xs text-zinc-400 mb-1 block">Name</label>
+                      <input value={editDevForm.name} onChange={e => setEditDevForm({ ...editDevForm, name: e.target.value })}
+                        className={inputClass + " w-full"} />
+                    </div>
+                    <div className="w-28">
+                      <label className="text-xs text-zinc-400 mb-1 block">Area</label>
+                      <input value={editDevForm.area} onChange={e => setEditDevForm({ ...editDevForm, area: e.target.value })}
+                        className={inputClass + " w-full"} />
+                    </div>
+                    <div className="flex-1 min-w-[180px]">
+                      <label className="text-xs text-zinc-400 mb-1 block">Address</label>
+                      <input value={editDevForm.address} onChange={e => setEditDevForm({ ...editDevForm, address: e.target.value })}
+                        className={inputClass + " w-full"} />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => saveDevEdit(d.id)} className="px-3 py-2 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg">Save</button>
+                      <button onClick={() => setEditingDev(null)} className="px-3 py-2 text-xs text-zinc-400 hover:text-white">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-lg font-semibold text-white">{d.name}</h2>
+                      <span className="text-zinc-500 text-xs">{d.tenants.length}</span>
+                      {d.area && <span className="text-xs text-zinc-500 bg-zinc-700 px-2 py-0.5 rounded">{d.area}</span>}
+                      <button onClick={() => startDevEdit(d)} className="text-zinc-600 hover:text-zinc-300 transition-colors">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+                      </button>
+                    </div>
+                    <button onClick={() => { setAddingTo(addingTo === d.id ? null : d.id); setNewTenant({ ...emptyForm }); }}
+                      className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors">
+                      + Add
+                    </button>
+                  </div>
+                )}
               </div>
 
               {addingTo === d.id && (
@@ -405,6 +519,8 @@ function TenantForm({ form, setForm, allTenantNames, inputClass, onSave, onCance
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const [steps, setSteps] = useState<RentStep[]>(() => parseRentSteps(form.rentSteps));
+
   function handleBlur(field: string) {
     setForm(autoCalc(form, field));
   }
@@ -413,9 +529,28 @@ function TenantForm({ form, setForm, allTenantNames, inputClass, onSave, onCance
     setForm({ ...form, [field]: value });
   }
 
+  function addStep() {
+    const updated = [...steps, { month: "", rent: "" }];
+    setSteps(updated);
+    setForm({ ...form, rentSteps: serializeRentSteps(updated) });
+  }
+
+  function updateStep(idx: number, field: keyof RentStep, value: string) {
+    const updated = [...steps];
+    updated[idx] = { ...updated[idx], [field]: value };
+    setSteps(updated);
+    setForm({ ...form, rentSteps: serializeRentSteps(updated) });
+  }
+
+  function removeStep(idx: number) {
+    const updated = steps.filter((_, i) => i !== idx);
+    setSteps(updated);
+    setForm({ ...form, rentSteps: serializeRentSteps(updated) });
+  }
+
   return (
     <div className="space-y-3">
-      {/* Row 1: Name, Unit, Status */}
+      {/* Row 1: Name, Unit, Status, Lease Type */}
       <div className="flex flex-wrap gap-2 items-end">
         <div className="flex-1 min-w-[180px]">
           <label className="text-xs text-zinc-400 mb-1 block">Tenant Name<RequiredStar /></label>
@@ -441,7 +576,7 @@ function TenantForm({ form, setForm, allTenantNames, inputClass, onSave, onCance
             <option value="pending">Pending</option>
           </select>
         </div>
-        <div className="w-28">
+        <div className="w-36">
           <label className="text-xs text-zinc-400 mb-1 block">Lease Type</label>
           <select value={form.leaseType} onChange={e => set("leaseType", e.target.value)}
             className={inputClass + " w-full"}>
@@ -449,6 +584,7 @@ function TenantForm({ form, setForm, allTenantNames, inputClass, onSave, onCance
             <option value="Net">Net</option>
             <option value="Gross">Gross</option>
             <option value="Modified Gross">Modified Gross</option>
+            <option value="Land Lease">Land Lease</option>
           </select>
         </div>
       </div>
@@ -465,14 +601,50 @@ function TenantForm({ form, setForm, allTenantNames, inputClass, onSave, onCance
           <input type="number" step="0.01" value={form.netRentPSF} onChange={e => set("netRentPSF", e.target.value)}
             onBlur={() => handleBlur("netRentPSF")} placeholder="$/SF" className={inputClass + " w-full"} />
         </div>
+
+        {/* Rent Steps — right after net rent */}
+        <div className="flex-1 min-w-[250px]">
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs text-zinc-400">Rent Steps</label>
+            <button onClick={addStep} className="text-[10px] text-blue-400 hover:text-blue-300">+ Add Step</button>
+          </div>
+          {steps.length === 0 ? (
+            <p className="text-[10px] text-zinc-600 italic py-1">No steps — base rent applies for full term</p>
+          ) : (
+            <div className="space-y-1">
+              {steps.map((step, idx) => (
+                <div key={idx} className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-zinc-500">Mo</span>
+                  <input type="number" value={step.month} onChange={e => updateStep(idx, "month", e.target.value)}
+                    placeholder="36" className={inputClass + " w-16 !py-1 !px-2 !text-xs"} />
+                  <span className="text-zinc-600 text-xs">→</span>
+                  <span className="text-[10px] text-zinc-500">$</span>
+                  <input type="number" value={step.rent} onChange={e => updateStep(idx, "rent", e.target.value)}
+                    placeholder="22" className={inputClass + " w-16 !py-1 !px-2 !text-xs"} />
+                  <span className="text-[10px] text-zinc-500">/SF</span>
+                  <button onClick={() => removeStep(idx)} className="text-zinc-600 hover:text-red-400 text-xs">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Row 3: More financials */}
+      <div className="flex flex-wrap gap-2 items-end">
         <div className="w-32">
           <label className="text-xs text-zinc-400 mb-1 block">Annual Rent<RequiredStar /></label>
           <input type="number" step="0.01" value={form.annualRent} onChange={e => set("annualRent", e.target.value)}
             onBlur={() => handleBlur("annualRent")} placeholder="$/yr" className={inputClass + " w-full"} />
         </div>
+        <div className="w-32">
+          <label className="text-xs text-zinc-400 mb-1 block">Operating Costs</label>
+          <input type="number" step="0.01" value={form.operatingCosts} onChange={e => set("operatingCosts", e.target.value)}
+            placeholder="$/SF/yr" className={inputClass + " w-full"} />
+        </div>
       </div>
 
-      {/* Row 3: Dates */}
+      {/* Row 4: Dates */}
       <div className="flex flex-wrap gap-2 items-end">
         <div className="w-36">
           <label className="text-xs text-zinc-400 mb-1 block">Lease Start<RequiredStar /></label>
@@ -491,18 +663,11 @@ function TenantForm({ form, setForm, allTenantNames, inputClass, onSave, onCance
         </div>
       </div>
 
-      {/* Row 4: Rent Steps & Comment */}
-      <div className="flex flex-wrap gap-2 items-end">
-        <div className="flex-1 min-w-[200px]">
-          <label className="text-xs text-zinc-400 mb-1 block">Rent Steps</label>
-          <input value={form.rentSteps} onChange={e => set("rentSteps", e.target.value)}
-            placeholder='e.g. Yr2: $18/SF, Yr3: $19/SF' className={inputClass + " w-full"} />
-        </div>
-        <div className="flex-1 min-w-[200px]">
-          <label className="text-xs text-zinc-400 mb-1 block">Comment</label>
-          <input value={form.comment} onChange={e => set("comment", e.target.value)}
-            placeholder="Notes..." className={inputClass + " w-full"} />
-        </div>
+      {/* Row 5: Comment */}
+      <div>
+        <label className="text-xs text-zinc-400 mb-1 block">Comment</label>
+        <input value={form.comment} onChange={e => set("comment", e.target.value)}
+          placeholder="Notes..." className={inputClass + " w-full"} />
       </div>
 
       {/* Actions */}

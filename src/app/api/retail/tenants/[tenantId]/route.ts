@@ -3,14 +3,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, requireFullAccess } from "@/lib/auth";
 import { eq } from "drizzle-orm";
 import { awardCredits } from "@/lib/credit-service";
+import { syncRetailTenantToComp } from "@/lib/retail-comp-sync";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ tenantId: string }> }) {
   const auth = await requireFullAccess(req);
   if (auth instanceof Response) return auth;
   const { tenantId } = await params;
   const body = await req.json();
-  const allowed = new Set(["tenantName", "category", "areaSF", "unitSuite", "netRentPSF", "annualRent", "leaseStart", "leaseExpiry", "termMonths", "rentSteps", "leaseType", "comment", "status"]);
-  const numericFields = new Set(["areaSF", "netRentPSF", "annualRent"]);
+  const allowed = new Set(["tenantName", "category", "areaSF", "unitSuite", "netRentPSF", "annualRent", "leaseStart", "leaseExpiry", "termMonths", "rentSteps", "leaseType", "operatingCosts", "comment", "status"]);
+  const numericFields = new Set(["areaSF", "netRentPSF", "annualRent", "operatingCosts"]);
   const intFields = new Set(["termMonths"]);
   const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   let fieldChanges = 0;
@@ -23,6 +24,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ te
     }
   }
   await db.update(schema.retailTenants).set(updates).where(eq(schema.retailTenants.id, parseInt(tenantId)));
+  
+  // Sync to comps table
+  syncRetailTenantToComp(parseInt(tenantId));
+  
   const creditAmount = fieldChanges >= 5 ? 2 : 1;
   awardCredits(auth.user.id, creditAmount, "update_retail");
   return NextResponse.json({ ok: true });

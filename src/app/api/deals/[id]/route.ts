@@ -22,6 +22,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // Accept full JSON array of comments or a string
     updates.notes = typeof body.notes === "string" ? body.notes : JSON.stringify(body.notes);
   }
+  if (body.dealEconomics !== undefined) {
+    updates.dealEconomics = body.dealEconomics === null ? null : (typeof body.dealEconomics === "string" ? body.dealEconomics : JSON.stringify(body.dealEconomics));
+  }
   if (body.stage !== undefined) {
     updates.stage = body.stage;
     updates.stageEnteredAt = now;

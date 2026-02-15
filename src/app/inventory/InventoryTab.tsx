@@ -41,7 +41,6 @@ export default function InventoryTab() {
   const [search, setSearch] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [sizeRange, setSizeRange] = useState(0);
-  const [occupancy, setOccupancy] = useState<"all" | "vacant" | "occupied">("all");
   const [sortKey, setSortKey] = useState<SortKey>("areaSF");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
@@ -92,14 +91,8 @@ export default function InventoryTab() {
       );
     }
 
-    if (occupancy === "vacant") {
-      result = result.filter((b) => !b.businessName);
-    } else if (occupancy === "occupied") {
-      result = result.filter((b) => !!b.businessName);
-    }
-
     return result;
-  }, [data, search, neighborhood, sizeRange, occupancy]);
+  }, [data, search, neighborhood, sizeRange]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -232,15 +225,6 @@ export default function InventoryTab() {
           <p className="text-muted text-xs font-medium mb-1">Total SF</p>
           <p className="text-2xl font-bold text-foreground">{(totalSF / 1_000_000).toFixed(1)}M</p>
         </div>
-        <div className="bg-gradient-to-br from-amber-500/20 to-amber-600/5 border border-amber-500/20 rounded-xl p-4">
-          <p className="text-muted text-xs font-medium mb-1">Vacancy Rate</p>
-          <p className="text-2xl font-bold text-foreground">
-            {filtered.length > 0 ? ((filtered.filter((b) => !b.businessName).length / filtered.length) * 100).toFixed(2) : "0.00"}%
-          </p>
-          <p className="text-xs text-muted mt-0.5">
-            {filtered.filter((b) => !b.businessName).length.toLocaleString()} vacant
-          </p>
-        </div>
       </div>
 
       {/* Filters */}
@@ -280,16 +264,6 @@ export default function InventoryTab() {
           {SIZE_RANGES.map((r, i) => (
             <option key={i} value={i}>{r.label}</option>
           ))}
-        </select>
-
-        <select
-          value={occupancy}
-          onChange={(e) => { setOccupancy(e.target.value as "all" | "vacant" | "occupied"); setPage(0); }}
-          className="bg-card border border-card-border rounded-lg px-3 py-2 text-sm text-foreground cursor-pointer hover:border-muted focus:outline-none focus:ring-1 focus:ring-accent"
-        >
-          <option value="all">All Occupancy</option>
-          <option value="vacant">Vacant Only</option>
-          <option value="occupied">Occupied Only</option>
         </select>
 
         <button

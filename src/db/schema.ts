@@ -160,6 +160,7 @@ export const deals = sqliteTable("deals", {
   stage: text("stage").notNull().default("prospect"),
   stageEnteredAt: text("stage_entered_at").notNull().$defaultFn(() => new Date().toISOString()),
   notes: text("notes"),
+  dealEconomics: text("deal_economics"), // JSON blob: calculator inputs + results
   inquiryId: integer("inquiry_id").references(() => inquiries.id),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
@@ -245,6 +246,7 @@ export const comps = sqliteTable("comps", {
   pptCode: integer("ppt_code"),
   pptDescriptor: text("ppt_descriptor"),
   armsLength: integer("arms_length", { mode: "boolean" }),
+  retailTenantId: integer("retail_tenant_id"),
   researchedUnavailable: integer("researched_unavailable").default(0),
   researchedAt: text("researched_at"),
   researchedBy: integer("researched_by"),
@@ -504,6 +506,7 @@ export const retailTenants = sqliteTable("retail_tenants", {
   termMonths: integer("term_months"),
   rentSteps: text("rent_steps"),
   leaseType: text("lease_type"),
+  operatingCosts: real("operating_costs"),
   sortOrder: integer("sort_order").default(0),
   updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
 }, (table) => [

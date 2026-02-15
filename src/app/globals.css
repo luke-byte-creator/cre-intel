@@ -74,6 +74,13 @@ body {
   outline-offset: 2px;
 }
 
+/* Suppress focus ring on inputs inside styled containers */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+}
+
 /* Table sticky header */
 .sticky-header thead th {
   position: sticky;

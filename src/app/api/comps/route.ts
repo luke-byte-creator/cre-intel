@@ -39,6 +39,20 @@ export async function GET(req: NextRequest) {
   if (sizeMin) conditions.push(sql`${schema.comps.areaSF} >= ${parseFloat(sizeMin)}`);
   if (sizeMax) conditions.push(sql`${schema.comps.areaSF} <= ${parseFloat(sizeMax)}`);
 
+  const source = params.get("source");
+  if (source === "compfolio") {
+    conditions.push(sql`${schema.comps.source} = 'compfolio'`);
+  } else if (source === "transfer") {
+    conditions.push(sql`${schema.comps.source} LIKE 'transfer%'`);
+  } else if (source === "other") {
+    conditions.push(sql`${schema.comps.source} NOT LIKE 'transfer%' AND ${schema.comps.source} != 'compfolio'`);
+  }
+
+  const excludeSource = params.get("excludeSource");
+  if (excludeSource === "transfer") {
+    conditions.push(sql`(${schema.comps.source} NOT LIKE 'transfer%' OR ${schema.comps.source} IS NULL)`);
+  }
+
   if (search) {
     const pat = `%${search}%`;
     conditions.push(sql`(

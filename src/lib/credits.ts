@@ -7,10 +7,9 @@ export const KEY_FIELDS = {
     ]
   },
   Lease: {
-    required: ['propertyType', 'tenant', 'areaSF'],
+    required: ['propertyType', 'tenant', 'areaSF', 'landlord', 'leaseStart', 'leaseExpiry'],
     groups: [
       ['netRentPSF', 'annualRent'],
-      ['leaseStart', 'leaseExpiry'],
     ]
   }
 } as const;

@@ -364,8 +364,20 @@ export default function VacancyTab() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted mb-1">Quarter</label>
-                <input type="text" value={form.quarterRecorded} onChange={e => setForm({ ...form, quarterRecorded: e.target.value })}
-                  className="w-full bg-background border border-card-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent" />
+                <select value={form.quarterRecorded} onChange={e => setForm({ ...form, quarterRecorded: e.target.value })}
+                  className="w-full bg-background border border-card-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent">
+                  {(() => {
+                    const now = new Date();
+                    const y = now.getFullYear();
+                    const options: string[] = [];
+                    for (let yr = y - 1; yr <= y + 1; yr++) {
+                      for (let q = 1; q <= 4; q++) {
+                        options.push(`Q${q} ${yr}`);
+                      }
+                    }
+                    return options.map(o => <option key={o} value={o}>{o}</option>);
+                  })()}
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted mb-1">Notes</label>

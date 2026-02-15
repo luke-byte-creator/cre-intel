@@ -94,49 +94,70 @@ function sourceLabel(s: string | null) {
   return s;
 }
 
-function buildCompHTML(selected: Comp[]): string {
-  const headers = ["Address", "City", "Date", "Vendor", "Purchaser", "Price", "Price/SF", "Size (SF)", "Property Type", "Cap Rate", "NOI", "Comments"];
+function fmtD(d: string | null) {
+  if (!d) return "";
+  return new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+function fmtP(n: number | null) { return n != null ? "$" + n.toLocaleString("en-US", { maximumFractionDigits: 0 }) : ""; }
+function fmtPSF2(n: number | null) { return n != null ? "$" + n.toFixed(2) + "/SF" : ""; }
+function fmtCap2(n: number | null) { return n != null ? n.toFixed(2) + "%" : ""; }
+function fmtN(n: number | null) { return n != null ? n.toLocaleString("en-US") : ""; }
+
+function getSaleColumns(detailed: boolean) {
+  const basic = ["Address", "City", "Date", "Vendor", "Purchaser", "Price", "Price/SF", "Size (SF)", "Property Type", "Cap Rate", "NOI", "Comments"];
+  if (!detailed) return basic;
+  return [...basic, "Investment Type", "Property Name", "Year Built", "Zoning", "Construction", "Land Acres", "Land SF", "Office SF", "Ceiling Height", "Loading Docks", "Drive-In Doors", "# Units", "# Buildings", "# Stories", "Vacancy Rate", "Stabilized NOI", "Stabilized Cap Rate", "Price/Acre", "Price/Unit", "Source"];
+}
+
+function getSaleRow(r: Comp, detailed: boolean): string[] {
+  const basic = [
+    r.address + (r.unit ? ` ${r.unit}` : ""), r.city || "Saskatoon", fmtD(r.saleDate),
+    r.seller || "", r.purchaser || "", fmtP(r.salePrice), fmtPSF2(r.pricePSF),
+    fmtN(r.areaSF), r.propertyType || "", fmtCap2(r.capRate), fmtP(r.noi), r.comments || "",
+  ];
+  if (!detailed) return basic;
+  return [...basic,
+    r.investmentType || "", r.propertyName || "", r.yearBuilt?.toString() || "",
+    r.zoning || "", r.constructionClass || "", r.landAcres?.toString() || "",
+    fmtN(r.landSF), fmtN(r.officeSF), r.ceilingHeight ? r.ceilingHeight + " ft" : "",
+    r.loadingDocks?.toString() || "", r.driveInDoors?.toString() || "",
+    r.numUnits?.toString() || "", r.numBuildings?.toString() || "",
+    r.numStories?.toString() || "", r.vacancyRate != null ? r.vacancyRate.toFixed(1) + "%" : "",
+    fmtP(r.stabilizedNOI), fmtCap2(r.stabilizedCapRate),
+    r.pricePerAcre != null ? fmtP(r.pricePerAcre) : "",
+    r.pricePerUnit != null ? fmtP(r.pricePerUnit) : "",
+    r.source ? sourceLabel(r.source) : "",
+  ];
+}
+
+function buildCompHTML(selected: Comp[], detailed = false): string {
+  const headers = getSaleColumns(detailed);
   const th = headers.map(h => `<th style="border:1px solid #ccc;padding:6px 10px;background:#f5f5f5;font-weight:bold;text-align:left;font-size:13px">${h}</th>`).join("");
   const rows = selected.map(r => {
-    const cells = [
-      r.address + (r.unit ? ` ${r.unit}` : ""),
-      r.city || "Saskatoon",
-      r.saleDate ? new Date(r.saleDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "",
-      r.seller || "",
-      r.purchaser || "",
-      r.salePrice != null ? "$" + r.salePrice.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "",
-      r.pricePSF != null ? "$" + r.pricePSF.toFixed(2) + "/SF" : "",
-      r.areaSF != null ? r.areaSF.toLocaleString("en-US") : "",
-      r.propertyType || "",
-      r.capRate != null ? r.capRate.toFixed(2) + "%" : "",
-      r.noi != null ? "$" + r.noi.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "",
-      r.comments || "",
-    ];
+    const cells = getSaleRow(r, detailed);
     return `<tr>${cells.map(c => `<td style="border:1px solid #ccc;padding:6px 10px;font-size:13px">${c}</td>`).join("")}</tr>`;
   }).join("");
   return `<table style="border-collapse:collapse;font-family:Arial,sans-serif"><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-function buildCompPlain(selected: Comp[]): string {
-  const header = "Address\tCity\tDate\tVendor\tPurchaser\tPrice\tPrice/SF\tSize (SF)\tProperty Type\tCap Rate\tNOI\tComments";
-  const rows = selected.map(r => [
-    r.address + (r.unit ? ` ${r.unit}` : ""),
-    r.city || "Saskatoon",
-    r.saleDate ? new Date(r.saleDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "",
-    r.seller || "",
-    r.purchaser || "",
-    r.salePrice != null ? "$" + r.salePrice.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "",
-    r.pricePSF != null ? "$" + r.pricePSF.toFixed(2) + "/SF" : "",
-    r.areaSF != null ? r.areaSF.toLocaleString("en-US") : "",
-    r.propertyType || "",
-    r.capRate != null ? r.capRate.toFixed(2) + "%" : "",
-    r.noi != null ? "$" + r.noi.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "",
-    r.comments || "",
-  ].join("\t"));
+function buildCompPlain(selected: Comp[], detailed = false): string {
+  const header = getSaleColumns(detailed).join("\t");
+  const rows = selected.map(r => getSaleRow(r, detailed).join("\t"));
   return header + "\n" + rows.join("\n");
 }
 
-export default function SalesPage() {
+interface SalesPageProps {
+  embedded?: boolean;
+  embeddedSearch?: string;
+  embeddedPropertyType?: string;
+  embeddedCity?: string;
+  embeddedSizeMin?: string;
+  embeddedSizeMax?: string;
+  embeddedDateFrom?: string;
+  embeddedSource?: string;
+}
+
+export default function SalesPage({ embedded, embeddedSearch, embeddedPropertyType, embeddedCity, embeddedSizeMin, embeddedSizeMax, embeddedDateFrom, embeddedSource }: SalesPageProps = {}) {
   const [data, setData] = useState<Comp[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -156,10 +177,21 @@ export default function SalesPage() {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [copied, setCopied] = useState(false);
+  const [showCopyMenu, setShowCopyMenu] = useState(false);
   const [editing, setEditing] = useState<Comp | null>(null);
   const [creating, setCreating] = useState(false);
   const [researchFilter, setResearchFilter] = useState<"all" | "researched" | "unresearched">("all");
+  const [sourceFilter, setSourceFilter] = useState("All");
   const limit = 50;
+
+  // When embedded, use parent filter values
+  const effectiveSearch = embedded ? (embeddedSearch || "") : search;
+  const effectivePropertyType = embedded ? (embeddedPropertyType || "All") : propertyType;
+  const effectiveCity = embedded ? (embeddedCity || "All") : city;
+  const effectiveSizeMin = embedded ? (embeddedSizeMin || "") : sizeMin;
+  const effectiveSizeMax = embedded ? (embeddedSizeMax || "") : sizeMax;
+  const effectiveDateFrom = embedded ? (embeddedDateFrom || "") : dateFrom;
+  const effectiveSource = embedded ? (embeddedSource || "All") : sourceFilter;
 
   useEffect(() => {
     fetch("/api/comps/cities").then(r => r.json()).then(setCities).catch(() => {});
@@ -168,17 +200,20 @@ export default function SalesPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({ type: "Sale", page: String(page), limit: String(limit), sortBy, sortDir });
-    if (search) params.set("search", search);
-    if (propertyType !== "All") params.set("propertyType", propertyType);
-    if (city !== "All") params.set("city", city);
-    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (effectiveSearch) params.set("search", effectiveSearch);
+    if (effectivePropertyType !== "All") params.set("propertyType", effectivePropertyType);
+    if (effectiveCity !== "All") params.set("city", effectiveCity);
+    if (effectiveDateFrom) params.set("dateFrom", effectiveDateFrom);
     if (dateTo) params.set("dateTo", dateTo);
     if (priceMin) params.set("priceMin", priceMin);
     if (priceMax) params.set("priceMax", priceMax);
-    if (sizeMin) params.set("sizeMin", sizeMin);
-    if (sizeMax) params.set("sizeMax", sizeMax);
+    if (effectiveSizeMin) params.set("sizeMin", effectiveSizeMin);
+    if (effectiveSizeMax) params.set("sizeMax", effectiveSizeMax);
     if (researchFilter === "researched") params.set("researchedOnly", "true");
     if (researchFilter === "unresearched") params.set("hideResearched", "true");
+    if (effectiveSource === "transfer") { params.set("source", "transfer"); }
+    else if (effectiveSource === "not-transfer") { params.set("excludeSource", "transfer"); }
+    else if (effectiveSource !== "All") { params.set("source", effectiveSource); }
     try {
       const res = await fetch(`/api/comps?${params}`);
       const json = await res.json();
@@ -187,7 +222,7 @@ export default function SalesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, propertyType, city, dateFrom, dateTo, priceMin, priceMax, sizeMin, sizeMax, sortBy, sortDir, researchFilter]);
+  }, [page, effectiveSearch, effectivePropertyType, effectiveCity, effectiveDateFrom, dateTo, priceMin, priceMax, effectiveSizeMin, effectiveSizeMax, sortBy, sortDir, researchFilter, effectiveSource]);
 
   useEffect(() => {
     const t = setTimeout(fetchData, 200);
@@ -215,11 +250,11 @@ export default function SalesPage() {
     else setSelected(new Set(data.map(r => r.id)));
   }
 
-  async function copyComps() {
+  async function copyComps(detailed = false) {
     const selectedComps = data.filter(r => selected.has(r.id));
     if (selectedComps.length === 0) return;
-    const html = buildCompHTML(selectedComps);
-    const plain = buildCompPlain(selectedComps);
+    const html = buildCompHTML(selectedComps, detailed);
+    const plain = buildCompPlain(selectedComps, detailed);
     const blob = new Blob([html], { type: "text/html" });
     const plainBlob = new Blob([plain], { type: "text/plain" });
     await navigator.clipboard.write([
@@ -228,6 +263,7 @@ export default function SalesPage() {
         "text/plain": plainBlob,
       }),
     ]);
+    setShowCopyMenu(false);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
@@ -269,6 +305,7 @@ export default function SalesPage() {
 
   return (
     <div className="space-y-6">
+      {!embedded && (
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Sale Transactions</h1>
@@ -281,25 +318,66 @@ export default function SalesPage() {
             Add Comp
           </button>
         {selected.size > 0 && (
-          <button onClick={copyComps}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
-            {copied ? (
-              <>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                Copied!
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
-                Copy {selected.size} Comp{selected.size > 1 ? "s" : ""} to Clipboard
-              </>
+          <div className="relative">
+            <button onClick={() => setShowCopyMenu(!showCopyMenu)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+              {copied ? "✓ Copied!" : `Copy ${selected.size} Comp${selected.size > 1 ? "s" : ""}`}
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+            </button>
+            {showCopyMenu && (
+              <div className="absolute right-0 top-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-20 min-w-[180px]">
+                <button onClick={() => copyComps(false)} className="w-full text-left px-4 py-2.5 text-sm text-white hover:bg-zinc-700 rounded-t-lg transition-colors">
+                  Copy Basic
+                  <span className="block text-[11px] text-zinc-400">Key fields only</span>
+                </button>
+                <button onClick={() => copyComps(true)} className="w-full text-left px-4 py-2.5 text-sm text-white hover:bg-zinc-700 rounded-b-lg transition-colors border-t border-zinc-700">
+                  Copy Detailed
+                  <span className="block text-[11px] text-zinc-400">All fields incl. building specs</span>
+                </button>
+              </div>
             )}
-          </button>
+          </div>
         )}
         </div>
       </div>
+      )}
+
+      {embedded && (
+        <div className="flex items-center justify-between">
+          <p className="text-zinc-400 text-sm">{total.toLocaleString()} Sale Transactions</p>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setCreating(true)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+              Add Comp
+            </button>
+            {selected.size > 0 && (
+              <div className="relative">
+                <button onClick={() => setShowCopyMenu(!showCopyMenu)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                  {copied ? "✓ Copied!" : `Copy ${selected.size} Comp${selected.size > 1 ? "s" : ""}`}
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+                </button>
+                {showCopyMenu && (
+                  <div className="absolute right-0 top-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-20 min-w-[180px]">
+                    <button onClick={() => copyComps(false)} className="w-full text-left px-4 py-2.5 text-sm text-white hover:bg-zinc-700 rounded-t-lg transition-colors">
+                      Copy Basic
+                      <span className="block text-[11px] text-zinc-400">Key fields only</span>
+                    </button>
+                    <button onClick={() => copyComps(true)} className="w-full text-left px-4 py-2.5 text-sm text-white hover:bg-zinc-700 rounded-b-lg transition-colors border-t border-zinc-700">
+                      Copy Detailed
+                      <span className="block text-[11px] text-zinc-400">All fields incl. building specs</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Filter Bar */}
+      {!embedded && (
       <div className="bg-zinc-800 rounded-xl p-4 flex flex-wrap gap-3 items-end">
         <div className="flex-1 min-w-[200px]">
           <label className="text-xs text-zinc-400 mb-1 block">Search</label>
@@ -320,6 +398,16 @@ export default function SalesPage() {
           <select value={propertyType} onChange={e => { setPropertyType(e.target.value); setPage(0); }}
             className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50">
             {PROPERTY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-zinc-400 mb-1 block">Source</label>
+          <select value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(0); }}
+            className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50">
+            <option value="All">All Sources</option>
+            <option value="compfolio">CompFolio</option>
+            <option value="transfer">Transfer List</option>
+            <option value="other">Other</option>
           </select>
         </div>
         <div>
@@ -361,6 +449,7 @@ export default function SalesPage() {
           </select>
         </div>
       </div>
+      )}
 
       {loading ? (
         <div className="text-zinc-400 p-8 text-center">Loading...</div>
