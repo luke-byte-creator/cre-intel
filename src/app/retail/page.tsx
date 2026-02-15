@@ -7,13 +7,116 @@ interface Tenant {
   developmentId: number;
   tenantName: string;
   category: string | null;
+  comment: string | null;
+  status: string | null;
   areaSF: number | null;
+  unitSuite: string | null;
+  netRentPSF: number | null;
+  annualRent: number | null;
+  leaseStart: string | null;
+  leaseExpiry: string | null;
+  termMonths: number | null;
+  rentSteps: string | null;
+  leaseType: string | null;
 }
 
 interface Development {
   id: number;
   name: string;
+  area: string | null;
+  address: string | null;
   tenants: Tenant[];
+}
+
+type EditForm = {
+  tenantName: string;
+  areaSF: string;
+  unitSuite: string;
+  netRentPSF: string;
+  annualRent: string;
+  leaseStart: string;
+  leaseExpiry: string;
+  termMonths: string;
+  rentSteps: string;
+  leaseType: string;
+  comment: string;
+  status: string;
+};
+
+const emptyForm: EditForm = {
+  tenantName: "", areaSF: "", unitSuite: "", netRentPSF: "", annualRent: "",
+  leaseStart: "", leaseExpiry: "", termMonths: "", rentSteps: "", leaseType: "",
+  comment: "", status: "active",
+};
+
+function addMonthsExpiry(start: string, months: number): string {
+  const d = new Date(start + "T00:00:00");
+  d.setMonth(d.getMonth() + months);
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split("T")[0];
+}
+
+function monthsDiff(start: string, end: string): number {
+  const s = new Date(start + "T00:00:00");
+  const e = new Date(end + "T00:00:00");
+  return (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + (e.getDate() >= s.getDate() ? 0 : 0) + 1;
+}
+
+function autoCalc(form: EditForm, field: string): EditForm {
+  const f = { ...form };
+  const num = (v: string) => v ? parseFloat(v) : null;
+
+  // netRentPSF × areaSF → annualRent
+  if (field === "netRentPSF" || field === "areaSF") {
+    const rent = num(f.netRentPSF);
+    const area = num(f.areaSF);
+    if (rent && area) f.annualRent = String(Math.round(rent * area * 100) / 100);
+  }
+  // annualRent ÷ areaSF → netRentPSF
+  if (field === "annualRent") {
+    const annual = num(f.annualRent);
+    const area = num(f.areaSF);
+    if (annual && area) f.netRentPSF = String(Math.round((annual / area) * 100) / 100);
+  }
+  // leaseStart + termMonths → leaseExpiry
+  if (field === "leaseStart" || field === "termMonths") {
+    const term = num(f.termMonths);
+    if (f.leaseStart && term && term > 0) f.leaseExpiry = addMonthsExpiry(f.leaseStart, term);
+  }
+  // leaseExpiry + leaseStart → termMonths
+  if (field === "leaseExpiry") {
+    if (f.leaseStart && f.leaseExpiry) {
+      const m = monthsDiff(f.leaseStart, f.leaseExpiry);
+      if (m > 0) f.termMonths = String(m);
+    }
+  }
+  return f;
+}
+
+function expiryStatus(expiry: string | null): "red" | "amber" | "green" | null {
+  if (!expiry) return null;
+  const now = new Date();
+  const exp = new Date(expiry + "T00:00:00");
+  const diffMs = exp.getTime() - now.getTime();
+  const diffMonths = diffMs / (1000 * 60 * 60 * 24 * 30.44);
+  if (diffMonths < 0) return "red";
+  if (diffMonths < 6) return "red";
+  if (diffMonths < 12) return "amber";
+  return "green";
+}
+
+function fmtDate(d: string | null) {
+  if (!d) return "—";
+  return new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+function fmtRent(n: number | null) {
+  if (n == null) return "—";
+  return "$" + n.toFixed(2) + "/SF";
+}
+
+function RequiredStar() {
+  return <span className="text-red-400 ml-0.5">*</span>;
 }
 
 export default function RetailPage() {
@@ -23,9 +126,9 @@ export default function RetailPage() {
   const [sfMin, setSfMin] = useState("");
   const [sfMax, setSfMax] = useState("");
   const [editingTenant, setEditingTenant] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<{ tenantName: string; areaSF: string }>({ tenantName: "", areaSF: "" });
+  const [editForm, setEditForm] = useState<EditForm>(emptyForm);
   const [addingTo, setAddingTo] = useState<number | null>(null);
-  const [newTenant, setNewTenant] = useState({ tenantName: "", areaSF: "" });
+  const [newTenant, setNewTenant] = useState<EditForm>(emptyForm);
   const [showLocations, setShowLocations] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -53,14 +156,37 @@ export default function RetailPage() {
     }
   }
 
-  // All unique tenant names for autocomplete
   const allTenantNames = [...new Set(devs.flatMap(d => d.tenants.map(t => t.tenantName)))].sort();
 
+  // Expiry tracking
+  const allTenants = devs.flatMap(d => d.tenants);
+  const now = new Date();
+  const sixMonths = new Date(now); sixMonths.setMonth(sixMonths.getMonth() + 6);
+  const twelveMonths = new Date(now); twelveMonths.setMonth(twelveMonths.getMonth() + 12);
+  const expiring6 = allTenants.filter(t => {
+    if (!t.leaseExpiry) return false;
+    const exp = new Date(t.leaseExpiry + "T00:00:00");
+    return exp >= now && exp <= sixMonths;
+  });
+  const expiring12 = allTenants.filter(t => {
+    if (!t.leaseExpiry) return false;
+    const exp = new Date(t.leaseExpiry + "T00:00:00");
+    return exp > sixMonths && exp <= twelveMonths;
+  });
+  const expired = allTenants.filter(t => {
+    if (!t.leaseExpiry) return false;
+    return new Date(t.leaseExpiry + "T00:00:00") < now;
+  });
+
   async function saveTenant(id: number) {
+    const payload: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(editForm)) {
+      payload[k] = v === "" ? null : v;
+    }
     await fetch(`/api/retail/tenants/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tenantName: editForm.tenantName, areaSF: editForm.areaSF || null }),
+      body: JSON.stringify(payload),
     });
     setEditingTenant(null);
     fetchData();
@@ -73,19 +199,36 @@ export default function RetailPage() {
 
   async function addTenant(devId: number) {
     if (!newTenant.tenantName) return;
+    const payload: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(newTenant)) {
+      payload[k] = v === "" ? null : v;
+    }
     await fetch(`/api/retail/${devId}/tenants`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tenantName: newTenant.tenantName, areaSF: newTenant.areaSF || null }),
+      body: JSON.stringify(payload),
     });
     setAddingTo(null);
-    setNewTenant({ tenantName: "", areaSF: "" });
+    setNewTenant({ ...emptyForm });
     fetchData();
   }
 
   function startEdit(t: Tenant) {
     setEditingTenant(t.id);
-    setEditForm({ tenantName: t.tenantName, areaSF: t.areaSF ? String(t.areaSF) : "" });
+    setEditForm({
+      tenantName: t.tenantName,
+      areaSF: t.areaSF != null ? String(t.areaSF) : "",
+      unitSuite: t.unitSuite || "",
+      netRentPSF: t.netRentPSF != null ? String(t.netRentPSF) : "",
+      annualRent: t.annualRent != null ? String(t.annualRent) : "",
+      leaseStart: t.leaseStart || "",
+      leaseExpiry: t.leaseExpiry || "",
+      termMonths: t.termMonths != null ? String(t.termMonths) : "",
+      rentSteps: t.rentSteps || "",
+      leaseType: t.leaseType || "",
+      comment: t.comment || "",
+      status: t.status || "active",
+    });
   }
 
   const totalTenants = devs.reduce((s, d) => s + d.tenants.length, 0);
@@ -97,6 +240,39 @@ export default function RetailPage() {
         <h1 className="text-2xl font-bold text-white">Retail Tenants</h1>
         <p className="text-zinc-400 text-sm mt-1">Tenant tracking across Saskatoon retail developments · {totalTenants} tenants</p>
       </div>
+
+      {/* Expiry Tracking Summary */}
+      {(expired.length > 0 || expiring6.length > 0 || expiring12.length > 0) && (
+        <div className="flex flex-wrap gap-3">
+          {expired.length > 0 && (
+            <div className="bg-red-900/30 border border-red-800/50 rounded-xl px-4 py-3 flex items-center gap-2">
+              <span className="text-red-400 text-lg">⚠</span>
+              <div>
+                <p className="text-red-300 text-sm font-semibold">{expired.length} expired lease{expired.length !== 1 ? "s" : ""}</p>
+                <p className="text-red-400/70 text-xs">Past expiry date</p>
+              </div>
+            </div>
+          )}
+          {expiring6.length > 0 && (
+            <div className="bg-red-900/20 border border-red-700/40 rounded-xl px-4 py-3 flex items-center gap-2">
+              <span className="text-red-400 text-lg">🔴</span>
+              <div>
+                <p className="text-red-300 text-sm font-semibold">{expiring6.length} expiring in &lt;6 months</p>
+                <p className="text-red-400/70 text-xs">Urgent renewal needed</p>
+              </div>
+            </div>
+          )}
+          {expiring12.length > 0 && (
+            <div className="bg-amber-900/20 border border-amber-700/40 rounded-xl px-4 py-3 flex items-center gap-2">
+              <span className="text-amber-400 text-lg">🟡</span>
+              <div>
+                <p className="text-amber-300 text-sm font-semibold">{expiring12.length} expiring in 6–12 months</p>
+                <p className="text-amber-400/70 text-xs">Plan renewal discussions</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
@@ -125,50 +301,62 @@ export default function RetailPage() {
                 <div className="flex items-center gap-3">
                   <h2 className="text-lg font-semibold text-white">{d.name}</h2>
                   <span className="text-zinc-500 text-xs">{d.tenants.length}</span>
+                  {d.area && <span className="text-xs text-zinc-500 bg-zinc-700 px-2 py-0.5 rounded">{d.area}</span>}
                 </div>
-                <button onClick={() => { setAddingTo(addingTo === d.id ? null : d.id); }}
+                <button onClick={() => { setAddingTo(addingTo === d.id ? null : d.id); setNewTenant({ ...emptyForm }); }}
                   className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors">
                   + Add
                 </button>
               </div>
 
               {addingTo === d.id && (
-                <div className="px-5 py-3 bg-zinc-900/50 border-b border-zinc-700 flex flex-wrap gap-2 items-center">
-                  <AutocompleteInput
-                    value={newTenant.tenantName}
-                    onChange={v => setNewTenant({ ...newTenant, tenantName: v })}
-                    suggestions={allTenantNames}
-                    placeholder="Tenant name"
-                    className={inputClass + " w-48"}
+                <div className="px-5 py-4 bg-zinc-900/50 border-b border-zinc-700">
+                  <TenantForm
+                    form={newTenant}
+                    setForm={setNewTenant}
+                    allTenantNames={allTenantNames}
+                    inputClass={inputClass}
+                    onSave={() => addTenant(d.id)}
+                    onCancel={() => setAddingTo(null)}
                   />
-                  <input type="number" placeholder="SF" value={newTenant.areaSF}
-                    onChange={e => setNewTenant({ ...newTenant, areaSF: e.target.value })}
-                    className={inputClass + " w-24"} />
-                  <button onClick={() => addTenant(d.id)} className="px-3 py-2 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg">Save</button>
-                  <button onClick={() => setAddingTo(null)} className="px-3 py-2 text-xs text-zinc-400 hover:text-white">Cancel</button>
                 </div>
               )}
 
               <div className="divide-y divide-zinc-700/50">
                 {d.tenants.map(t => {
                   const otherLocations = (tenantLocations.get(t.tenantName.toLowerCase().trim()) || []).filter(n => n !== d.name);
+                  const expSt = expiryStatus(t.leaseExpiry);
                   return (
                     <div key={t.id} className="px-5 py-3 hover:bg-zinc-800/80 transition-colors">
                       {editingTenant === t.id ? (
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <input value={editForm.tenantName} onChange={e => setEditForm({ ...editForm, tenantName: e.target.value })}
-                            className={inputClass + " w-48"} />
-                          <input type="number" placeholder="SF" value={editForm.areaSF}
-                            onChange={e => setEditForm({ ...editForm, areaSF: e.target.value })}
-                            className={inputClass + " w-24"} />
-                          <button onClick={() => saveTenant(t.id)} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded">Save</button>
-                          <button onClick={() => setEditingTenant(null)} className="px-3 py-1.5 text-xs text-zinc-400">Cancel</button>
+                        <div className="py-2">
+                          <TenantForm
+                            form={editForm}
+                            setForm={setEditForm}
+                            allTenantNames={allTenantNames}
+                            inputClass={inputClass}
+                            onSave={() => saveTenant(t.id)}
+                            onCancel={() => setEditingTenant(null)}
+                          />
                         </div>
                       ) : (
                         <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="flex items-center gap-3 min-w-0 flex-1 flex-wrap">
                             <span className="text-sm font-medium text-white">{t.tenantName}</span>
-                            {t.areaSF && <span className="text-xs text-zinc-500 font-mono">{t.areaSF.toLocaleString()} SF</span>}
+                            {t.unitSuite && <span className="text-xs text-zinc-500">#{t.unitSuite}</span>}
+                            {t.areaSF != null && <span className="text-xs text-zinc-500 font-mono">{t.areaSF.toLocaleString()} SF</span>}
+                            {t.netRentPSF != null && <span className="text-xs text-emerald-400 font-mono">{fmtRent(t.netRentPSF)}</span>}
+                            {t.annualRent != null && <span className="text-xs text-zinc-400 font-mono">${t.annualRent.toLocaleString()}/yr</span>}
+                            {t.leaseExpiry && (
+                              <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${
+                                expSt === "red" ? "bg-red-900/40 text-red-400" :
+                                expSt === "amber" ? "bg-amber-900/40 text-amber-400" :
+                                "text-zinc-500"
+                              }`}>
+                                Exp {fmtDate(t.leaseExpiry)}
+                              </span>
+                            )}
+                            {t.leaseType && <span className="text-xs text-zinc-500 bg-zinc-700 px-1.5 py-0.5 rounded">{t.leaseType}</span>}
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0 relative">
                             {otherLocations.length > 0 && (
@@ -205,6 +393,123 @@ export default function RetailPage() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function TenantForm({ form, setForm, allTenantNames, inputClass, onSave, onCancel }: {
+  form: EditForm;
+  setForm: (f: EditForm) => void;
+  allTenantNames: string[];
+  inputClass: string;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  function handleBlur(field: string) {
+    setForm(autoCalc(form, field));
+  }
+
+  function set(field: keyof EditForm, value: string) {
+    setForm({ ...form, [field]: value });
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Row 1: Name, Unit, Status */}
+      <div className="flex flex-wrap gap-2 items-end">
+        <div className="flex-1 min-w-[180px]">
+          <label className="text-xs text-zinc-400 mb-1 block">Tenant Name<RequiredStar /></label>
+          <AutocompleteInput
+            value={form.tenantName}
+            onChange={v => set("tenantName", v)}
+            suggestions={allTenantNames}
+            placeholder="Tenant name"
+            className={inputClass + " w-full"}
+          />
+        </div>
+        <div className="w-24">
+          <label className="text-xs text-zinc-400 mb-1 block">Unit/Suite</label>
+          <input value={form.unitSuite} onChange={e => set("unitSuite", e.target.value)}
+            placeholder="#" className={inputClass + " w-full"} />
+        </div>
+        <div className="w-28">
+          <label className="text-xs text-zinc-400 mb-1 block">Status</label>
+          <select value={form.status} onChange={e => set("status", e.target.value)}
+            className={inputClass + " w-full"}>
+            <option value="active">Active</option>
+            <option value="vacant">Vacant</option>
+            <option value="pending">Pending</option>
+          </select>
+        </div>
+        <div className="w-28">
+          <label className="text-xs text-zinc-400 mb-1 block">Lease Type</label>
+          <select value={form.leaseType} onChange={e => set("leaseType", e.target.value)}
+            className={inputClass + " w-full"}>
+            <option value="">—</option>
+            <option value="Net">Net</option>
+            <option value="Gross">Gross</option>
+            <option value="Modified Gross">Modified Gross</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Row 2: Financials */}
+      <div className="flex flex-wrap gap-2 items-end">
+        <div className="w-28">
+          <label className="text-xs text-zinc-400 mb-1 block">Area SF<RequiredStar /></label>
+          <input type="number" value={form.areaSF} onChange={e => set("areaSF", e.target.value)}
+            onBlur={() => handleBlur("areaSF")} placeholder="SF" className={inputClass + " w-full"} />
+        </div>
+        <div className="w-28">
+          <label className="text-xs text-zinc-400 mb-1 block">Net Rent/SF<RequiredStar /></label>
+          <input type="number" step="0.01" value={form.netRentPSF} onChange={e => set("netRentPSF", e.target.value)}
+            onBlur={() => handleBlur("netRentPSF")} placeholder="$/SF" className={inputClass + " w-full"} />
+        </div>
+        <div className="w-32">
+          <label className="text-xs text-zinc-400 mb-1 block">Annual Rent<RequiredStar /></label>
+          <input type="number" step="0.01" value={form.annualRent} onChange={e => set("annualRent", e.target.value)}
+            onBlur={() => handleBlur("annualRent")} placeholder="$/yr" className={inputClass + " w-full"} />
+        </div>
+      </div>
+
+      {/* Row 3: Dates */}
+      <div className="flex flex-wrap gap-2 items-end">
+        <div className="w-36">
+          <label className="text-xs text-zinc-400 mb-1 block">Lease Start<RequiredStar /></label>
+          <input type="date" value={form.leaseStart} onChange={e => set("leaseStart", e.target.value)}
+            onBlur={() => handleBlur("leaseStart")} className={inputClass + " w-full"} />
+        </div>
+        <div className="w-36">
+          <label className="text-xs text-zinc-400 mb-1 block">Lease Expiry<RequiredStar /></label>
+          <input type="date" value={form.leaseExpiry} onChange={e => set("leaseExpiry", e.target.value)}
+            onBlur={() => handleBlur("leaseExpiry")} className={inputClass + " w-full"} />
+        </div>
+        <div className="w-28">
+          <label className="text-xs text-zinc-400 mb-1 block">Term (mo)</label>
+          <input type="number" value={form.termMonths} onChange={e => set("termMonths", e.target.value)}
+            onBlur={() => handleBlur("termMonths")} placeholder="Months" className={inputClass + " w-full"} />
+        </div>
+      </div>
+
+      {/* Row 4: Rent Steps & Comment */}
+      <div className="flex flex-wrap gap-2 items-end">
+        <div className="flex-1 min-w-[200px]">
+          <label className="text-xs text-zinc-400 mb-1 block">Rent Steps</label>
+          <input value={form.rentSteps} onChange={e => set("rentSteps", e.target.value)}
+            placeholder='e.g. Yr2: $18/SF, Yr3: $19/SF' className={inputClass + " w-full"} />
+        </div>
+        <div className="flex-1 min-w-[200px]">
+          <label className="text-xs text-zinc-400 mb-1 block">Comment</label>
+          <input value={form.comment} onChange={e => set("comment", e.target.value)}
+            placeholder="Notes..." className={inputClass + " w-full"} />
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2 pt-1">
+        <button onClick={onSave} className="px-4 py-2 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium">Save</button>
+        <button onClick={onCancel} className="px-4 py-2 text-xs text-zinc-400 hover:text-white">Cancel</button>
+      </div>
     </div>
   );
 }

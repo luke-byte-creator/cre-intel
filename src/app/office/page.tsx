@@ -172,7 +172,7 @@ export default function OfficePage() {
         </div>
         <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 text-center">
           <p className="text-2xl font-bold text-white">{avgVacancy}%</p>
-          <p className="text-xs text-zinc-400">Avg Vacancy</p>
+          <p className="text-xs text-zinc-400">Vacancy Rate</p>
         </div>
       </div>
 

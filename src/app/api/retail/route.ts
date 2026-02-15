@@ -1,7 +1,8 @@
 import { db, schema } from "@/db";
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFullAccess } from "@/lib/auth";
 import { sql, eq, asc } from "drizzle-orm";
+import { awardCredits } from "@/lib/credit-service";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
 
 // Create a new development
 export async function POST(req: NextRequest) {
-  const auth = await requireAuth(req);
+  const auth = await requireFullAccess(req);
   if (auth instanceof Response) return auth;
   const body = await req.json();
   if (!body.name) return NextResponse.json({ error: "name required" }, { status: 400 });
@@ -56,5 +57,6 @@ export async function POST(req: NextRequest) {
     notes: body.notes || null,
   }).run();
 
+  
   return NextResponse.json({ ok: true });
 }

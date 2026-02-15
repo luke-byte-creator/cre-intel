@@ -36,6 +36,48 @@
       "when": 1771100170791,
       "tag": "0004_luxuriant_punisher",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1771105372101,
+      "tag": "0005_nifty_mentallo",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1771106253199,
+      "tag": "0006_thick_black_bird",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1771108516671,
+      "tag": "0007_adorable_wallow",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1771110397532,
+      "tag": "0008_fat_devos",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1771114486673,
+      "tag": "0009_sticky_daredevil",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1771114856549,
+      "tag": "0010_bumpy_kylun",
+      "breakpoints": true
     }
   ]
 }

@@ -1,10 +1,11 @@
 import { db, schema } from "@/db";
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFullAccess } from "@/lib/auth";
 import { eq } from "drizzle-orm";
+import { awardCredits } from "@/lib/credit-service";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAuth(req);
+  const auth = await requireFullAccess(req);
   if (auth instanceof Response) return auth;
   const { id } = await params;
   const bid = parseInt(id);
@@ -36,6 +37,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         updates[k] = v === "" ? null : v;
       }
     }
+  }
+
+  // Check if rent survey fields are being added
+  const rentFields = ["bachRentLow", "bachRentHigh", "oneBedRentLow", "oneBedRentHigh", "twoBedRentLow", "twoBedRentHigh", "threeBedRentLow", "threeBedRentHigh"];
+  const hasRentData = rentFields.some(f => f in body && body[f] !== null && body[f] !== "");
+
+  let awardedRentSurvey = false;
+  // Get current record to check if rent fields were previously empty
+  if (hasRentData) {
+    const [current] = db.select().from(schema.multiBuildings).where(eq(schema.multiBuildings.id, bid)).all();
+    if (current) {
+      const newRentFields = rentFields.filter(f => {
+        const oldVal = (current as Record<string, unknown>)[f];
+        return (oldVal === null || oldVal === undefined) && body[f] !== null && body[f] !== "" && body[f] !== undefined;
+      });
+      if (newRentFields.length > 0) {
+        awardCredits(auth.user.id, 1, "add_rent_survey", bid);
+        awardedRentSurvey = true;
+      }
+    }
+  }
+
+  if (!awardedRentSurvey) {
+    awardCredits(auth.user.id, 1, "update_multi", bid);
   }
 
   await db.update(schema.multiBuildings).set(updates).where(eq(schema.multiBuildings.id, bid));

@@ -1,11 +1,13 @@
 import { db, schema } from "@/db";
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFullAccess } from "@/lib/auth";
 import { eq } from "drizzle-orm";
+import { awardCredits } from "@/lib/credit-service";
+import { CREDIT_CONFIG } from "@/lib/credits";
 
 // Add a new unit
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAuth(req);
+  const auth = await requireFullAccess(req);
   if (auth instanceof Response) return auth;
   const { id } = await params;
   const buildingId = parseInt(id);
@@ -25,6 +27,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     notes: body.notes || null,
     verifiedDate: body.verifiedDate || null,
   }).run();
+
+  // Award credits for stacking plan update
+  awardCredits(auth.user.id, 1, "update_stacking_plan");
 
   const units = db.select().from(schema.officeUnits).where(eq(schema.officeUnits.buildingId, buildingId)).all();
   return NextResponse.json(units);

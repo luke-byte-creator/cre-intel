@@ -1,7 +1,8 @@
 import { db, schema } from "@/db";
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFullAccess } from "@/lib/auth";
 import { sql, asc, desc, eq } from "drizzle-orm";
+import { awardCredits } from "@/lib/credit-service";
 
 export const dynamic = "force-dynamic";
 
@@ -54,4 +55,27 @@ export async function GET(req: NextRequest) {
   );
 
   return NextResponse.json({ data, total, page, limit, zones });
+}
+
+// Add a new multifamily building
+export async function POST(req: NextRequest) {
+  const auth = await requireFullAccess(req);
+  if (auth instanceof Response) return auth;
+  const body = await req.json();
+
+  if (!body.address) return NextResponse.json({ error: "address required" }, { status: 400 });
+
+  const result = db.insert(schema.multiBuildings).values({
+    address: body.address,
+    buildingName: body.buildingName || null,
+    units: body.units ? Number(body.units) : null,
+    yearBuilt: body.yearBuilt ? Number(body.yearBuilt) : null,
+    buildingOwner: body.buildingOwner || null,
+    region: body.region || null,
+    cmhcZone: body.cmhcZone || null,
+  }).run();
+
+  
+
+  return NextResponse.json({ id: result.lastInsertRowid });
 }

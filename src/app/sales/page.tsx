@@ -45,6 +45,12 @@ interface Comp {
   pptDescriptor: string | null;
   armsLength: boolean | null;
   portfolio: string | null;
+  researchedUnavailable: number | null;
+  researchedAt: string | null;
+  researchedBy: number | null;
+  researchedExpired: boolean;
+  isResearched: boolean;
+  isAutoResearched: boolean;
 }
 
 const PROPERTY_TYPES = ["All", "Land", "Investment", "Retail", "Industrial", "Office", "Other", "Unknown"];
@@ -151,6 +157,8 @@ export default function SalesPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState<Comp | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [researchFilter, setResearchFilter] = useState<"all" | "researched" | "unresearched">("all");
   const limit = 50;
 
   useEffect(() => {
@@ -169,6 +177,8 @@ export default function SalesPage() {
     if (priceMax) params.set("priceMax", priceMax);
     if (sizeMin) params.set("sizeMin", sizeMin);
     if (sizeMax) params.set("sizeMax", sizeMax);
+    if (researchFilter === "researched") params.set("researchedOnly", "true");
+    if (researchFilter === "unresearched") params.set("hideResearched", "true");
     try {
       const res = await fetch(`/api/comps?${params}`);
       const json = await res.json();
@@ -177,7 +187,7 @@ export default function SalesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, propertyType, city, dateFrom, dateTo, priceMin, priceMax, sizeMin, sizeMax, sortBy, sortDir]);
+  }, [page, search, propertyType, city, dateFrom, dateTo, priceMin, priceMax, sizeMin, sizeMax, sortBy, sortDir, researchFilter]);
 
   useEffect(() => {
     const t = setTimeout(fetchData, 200);
@@ -245,6 +255,16 @@ export default function SalesPage() {
     fetchData();
   }
 
+  async function handleCreate(fields: Record<string, unknown>) {
+    await fetch("/api/comps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...fields, type: "Sale" }),
+    });
+    setCreating(false);
+    fetchData();
+  }
+
   const totalPages = Math.ceil(total / limit);
 
   return (
@@ -254,6 +274,12 @@ export default function SalesPage() {
           <h1 className="text-2xl font-bold text-white">Sale Transactions</h1>
           <p className="text-zinc-400 text-sm mt-1">{total.toLocaleString()} Sale Transactions</p>
         </div>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setCreating(true)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            Add Comp
+          </button>
         {selected.size > 0 && (
           <button onClick={copyComps}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
@@ -270,6 +296,7 @@ export default function SalesPage() {
             )}
           </button>
         )}
+        </div>
       </div>
 
       {/* Filter Bar */}
@@ -325,6 +352,14 @@ export default function SalesPage() {
           <input type="number" value={sizeMax} onChange={e => { setSizeMax(e.target.value); setPage(0); }}
             placeholder="∞" className="w-28 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
         </div>
+        <div className="flex items-center gap-1 self-end pb-1">
+          <select value={researchFilter} onChange={e => { setResearchFilter(e.target.value as "all" | "researched" | "unresearched"); setPage(0); }}
+            className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-500/50">
+            <option value="all">All Comps</option>
+            <option value="researched">Researched Only</option>
+            <option value="unresearched">Unresearched Only</option>
+          </select>
+        </div>
       </div>
 
       {loading ? (
@@ -347,6 +382,7 @@ export default function SalesPage() {
                   <th className="px-3 py-3">Purchaser</th>
                   <th className="px-3 py-3 cursor-pointer hover:text-white text-right" onClick={() => toggleSort("sale_price")}>Price<SortIcon col="sale_price" /></th>
                   <th className="px-3 py-3 cursor-pointer hover:text-white" onClick={() => toggleSort("property_type")}>Type<SortIcon col="property_type" /></th>
+                  <th className="px-3 py-3 text-center w-10">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -355,7 +391,8 @@ export default function SalesPage() {
                     isSelected={selected.has(r.id)}
                     onToggle={() => setExpanded(expanded === r.id ? null : r.id)}
                     onSelect={(e) => toggleSelect(r.id, e)}
-                    onEdit={() => setEditing(r)} />
+                    onEdit={() => setEditing(r)}
+                    onRefresh={fetchData} />
                 ))}
               </tbody>
             </table>
@@ -375,6 +412,7 @@ export default function SalesPage() {
                         <p className="font-medium text-white text-sm">{r.address}{r.unit ? ` ${r.unit}` : ""}</p>
                         <p className="text-xs text-zinc-400">{r.city || "Saskatoon"}</p>
                       </div>
+                      <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 mt-1 ${r.isResearched ? "bg-emerald-500" : "bg-red-500"}`} title={r.isResearched ? "Researched" : "Not researched"} />
                       <span className="px-2 py-0.5 rounded text-xs bg-zinc-600 text-zinc-200 shrink-0">{r.propertyType || "—"}</span>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -385,7 +423,7 @@ export default function SalesPage() {
                       <p className="text-zinc-400"><span className="text-zinc-500">Vendor:</span> {r.seller || "—"}</p>
                       <p className="text-zinc-400"><span className="text-zinc-500">Purchaser:</span> {r.purchaser || "—"}</p>
                     </div>
-                    {expanded === r.id && <ExpandedDetail r={r} onEdit={() => setEditing(r)} />}
+                    {expanded === r.id && <ExpandedDetail r={r} onEdit={() => setEditing(r)} onRefresh={fetchData} />}
                   </div>
                 </div>
               </div>
@@ -414,11 +452,20 @@ export default function SalesPage() {
           onClose={() => setEditing(null)}
         />
       )}
+
+      {creating && (
+        <CompEditModal
+          comp={{}}
+          type="Sale"
+          onSave={handleCreate}
+          onClose={() => setCreating(false)}
+        />
+      )}
     </div>
   );
 }
 
-function CompRow({ r, expanded, isSelected, onToggle, onSelect, onEdit }: { r: Comp; expanded: boolean; isSelected: boolean; onToggle: () => void; onSelect: (e: React.MouseEvent) => void; onEdit: () => void }) {
+function CompRow({ r, expanded, isSelected, onToggle, onSelect, onEdit, onRefresh }: { r: Comp; expanded: boolean; isSelected: boolean; onToggle: () => void; onSelect: (e: React.MouseEvent) => void; onEdit: () => void; onRefresh: () => void }) {
   return (
     <>
       <tr className={`border-b border-zinc-700 ${isSelected ? "bg-blue-500/10" : "bg-zinc-900"} hover:bg-zinc-800 cursor-pointer transition-colors`}>
@@ -433,11 +480,14 @@ function CompRow({ r, expanded, isSelected, onToggle, onSelect, onEdit }: { r: C
         <td className="px-3 py-3 text-zinc-300 max-w-[180px] truncate" onClick={onToggle}>{r.purchaser || "—"}</td>
         <td className="px-3 py-3 text-right font-mono text-white" onClick={onToggle}>{fmtPrice(r.salePrice)}</td>
         <td className="px-3 py-3" onClick={onToggle}><span className="px-2 py-0.5 rounded text-xs bg-zinc-600 text-zinc-200">{r.propertyType || "—"}</span></td>
+        <td className="px-3 py-3 text-center" onClick={onToggle}>
+          <span className={`inline-block w-2.5 h-2.5 rounded-full ${r.isResearched ? "bg-emerald-500" : "bg-red-500"}`} title={r.isResearched ? "Researched" : "Not researched"} />
+        </td>
       </tr>
       {expanded && (
         <tr className="bg-zinc-800/50">
-          <td colSpan={8} className="px-6 py-4">
-            <ExpandedDetail r={r} onEdit={onEdit} />
+          <td colSpan={9} className="px-6 py-4">
+            <ExpandedDetail r={r} onEdit={onEdit} onRefresh={onRefresh} />
           </td>
         </tr>
       )}
@@ -445,10 +495,24 @@ function CompRow({ r, expanded, isSelected, onToggle, onSelect, onEdit }: { r: C
   );
 }
 
-function ExpandedDetail({ r, onEdit }: { r: Comp; onEdit: () => void }) {
+function ExpandedDetail({ r, onEdit, onRefresh }: { r: Comp; onEdit: () => void; onRefresh?: () => void }) {
+  async function toggleResearched(e: React.MouseEvent) {
+    e.stopPropagation();
+    await fetch(`/api/comps/${r.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ researchedUnavailable: r.researchedUnavailable === 1 ? false : true }),
+    });
+    onRefresh?.();
+  }
+
   return (
     <div className="mt-3 pt-3 border-t border-zinc-700 space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <button onClick={toggleResearched}
+          className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
+          {r.researchedUnavailable === 1 ? "Unflag Researched" : "Mark Unavailable"}
+        </button>
         <button onClick={(e) => { e.stopPropagation(); onEdit(); }}
           className="px-3 py-1.5 text-sm bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded-lg transition-colors flex items-center gap-1.5">
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>

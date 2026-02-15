@@ -10,6 +10,8 @@ export interface User {
   email: string;
   name: string;
   role: string;
+  creditBalance: number;
+  isExempt: number;
 }
 
 export function hashPassword(password: string): string {
@@ -36,6 +38,22 @@ export async function requireAuth(request: NextRequest): Promise<{ user: User } 
   return { user };
 }
 
+export async function requireFullAccess(request: NextRequest): Promise<{ user: User } | Response> {
+  const user = await getUser(request);
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const { getAccessLevel } = await import("./credit-service");
+  const level = getAccessLevel(user.creditBalance);
+  if (level !== "full") {
+    return Response.json(
+      { error: "Insufficient credits. Contribute data to earn more access.", accessLevel: level },
+      { status: 403 }
+    );
+  }
+  return { user };
+}
+
 export async function getUser(request: NextRequest): Promise<User | null> {
   const token = getSessionToken(request);
   if (!token) return null;
@@ -43,7 +61,7 @@ export async function getUser(request: NextRequest): Promise<User | null> {
   try {
     const db = new Database(DB_PATH);
     const row = db.prepare(`
-      SELECT u.id, u.email, u.name, u.role
+      SELECT u.id, u.email, u.name, u.role, u.credit_balance as creditBalance, u.is_exempt as isExempt
       FROM auth_sessions s
       JOIN users u ON u.id = s.user_id
       WHERE s.id = ? AND s.expires_at > datetime('now')

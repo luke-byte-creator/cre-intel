@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import crypto from "crypto";
 import path from "path";
 import { verifyPassword } from "@/lib/auth";
+import { getAccessLevel } from "@/lib/credit-service";
 
 const DB_PATH = path.join(process.cwd(), "data", "cre-intel.db");
 
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = new Database(DB_PATH);
-    const user = db.prepare("SELECT id, email, name, role, password_hash FROM users WHERE email = ?").get(email) as any;
+    const user = db.prepare("SELECT id, email, name, role, password_hash, credit_balance, is_exempt FROM users WHERE email = ?").get(email) as any;
 
     if (!user || !verifyPassword(password, user.password_hash)) {
       db.close();
@@ -29,7 +30,17 @@ export async function POST(request: NextRequest) {
     );
     db.close();
 
-    const res = NextResponse.json({ ok: true, user: { name: user.name, email: user.email, role: user.role } });
+    const balance = user.credit_balance ?? 0;
+    const res = NextResponse.json({
+      ok: true,
+      user: {
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        creditBalance: balance,
+        accessLevel: getAccessLevel(balance),
+      },
+    });
     res.cookies.set("nova_session", sessionId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

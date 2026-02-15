@@ -1,10 +1,11 @@
 import { db, schema } from "@/db";
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFullAccess } from "@/lib/auth";
 import { eq } from "drizzle-orm";
+import { awardCredits } from "@/lib/credit-service";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ unitId: string }> }) {
-  const auth = await requireAuth(req);
+  const auth = await requireFullAccess(req);
   if (auth instanceof Response) return auth;
   const { unitId } = await params;
   const id = parseInt(unitId);
@@ -21,6 +22,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ un
   }
 
   await db.update(schema.officeUnits).set(updates).where(eq(schema.officeUnits.id, id));
+
+  awardCredits(auth.user.id, 1, "update_stacking_plan");
+
   const [updated] = db.select().from(schema.officeUnits).where(eq(schema.officeUnits.id, id)).all();
   return NextResponse.json(updated);
 }

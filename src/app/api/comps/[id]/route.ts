@@ -1,17 +1,42 @@
 import { db, schema } from "@/db";
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFullAccess } from "@/lib/auth";
 import { eq } from "drizzle-orm";
+import { awardCredits } from "@/lib/credit-service";
+import { CREDIT_CONFIG, isCompKeyFieldsComplete } from "@/lib/credits";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAuth(req);
+  const auth = await requireFullAccess(req);
   if (auth instanceof Response) return auth;
 
   const { id } = await params;
   const compId = parseInt(id);
   if (isNaN(compId)) return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
 
+  // Get current comp to check which fields were empty
+  const [currentComp] = db.select().from(schema.comps).where(eq(schema.comps.id, compId)).all();
+  if (!currentComp) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
   const body = await req.json();
+
+  // Handle researched flag toggle
+  if (body.researchedUnavailable !== undefined) {
+    if (body.researchedUnavailable) {
+      await db.update(schema.comps).set({
+        researchedUnavailable: 1,
+        researchedAt: new Date().toISOString(),
+        researchedBy: auth.user.id,
+      }).where(eq(schema.comps.id, compId));
+    } else {
+      await db.update(schema.comps).set({
+        researchedUnavailable: 0,
+        researchedAt: null,
+        researchedBy: null,
+      }).where(eq(schema.comps.id, compId));
+    }
+    const [updated] = await db.select().from(schema.comps).where(eq(schema.comps.id, compId));
+    return NextResponse.json(updated);
+  }
 
   // Allowlist of editable fields
   const allowed = new Set([
@@ -44,8 +69,38 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   await db.update(schema.comps).set(updates).where(eq(schema.comps.id, compId));
 
-  const [updated] = await db.select().from(schema.comps).where(eq(schema.comps.id, compId));
-  return NextResponse.json(updated);
+  // Count newly filled fields (were null/empty, now have values)
+  let filledCount = 0;
+  const filledFields: string[] = [];
+  for (const [key, value] of Object.entries(updates)) {
+    const oldVal = (currentComp as Record<string, unknown>)[key];
+    if ((oldVal === null || oldVal === undefined || oldVal === "") && value !== null && value !== undefined && value !== "") {
+      filledCount++;
+      filledFields.push(key);
+    }
+  }
+
+  if (filledCount > 0) {
+    const amount = filledCount >= 5 ? CREDIT_CONFIG.ACTIONS.FILL_FIELDS_MAJOR : CREDIT_CONFIG.ACTIONS.FILL_FIELDS_MINOR;
+    const reason = filledCount >= 5 ? "fill_fields" : "fill_fields";
+    awardCredits(auth.user.id, amount, reason, compId, JSON.stringify({ fields: filledFields, count: filledCount }));
+  }
+
+  // Auto-set researched flag if key fields are now complete
+  const [afterUpdate] = await db.select().from(schema.comps).where(eq(schema.comps.id, compId));
+  if (afterUpdate && afterUpdate.researchedUnavailable !== 1) {
+    if (isCompKeyFieldsComplete(afterUpdate as unknown as Record<string, unknown>)) {
+      await db.update(schema.comps).set({
+        researchedUnavailable: 1,
+        researchedAt: new Date().toISOString(),
+        researchedBy: auth.user.id,
+      }).where(eq(schema.comps.id, compId));
+      const [final] = await db.select().from(schema.comps).where(eq(schema.comps.id, compId));
+      return NextResponse.json(final);
+    }
+  }
+
+  return NextResponse.json(afterUpdate);
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

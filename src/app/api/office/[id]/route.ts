@@ -1,7 +1,8 @@
 import { db, schema } from "@/db";
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFullAccess } from "@/lib/auth";
 import { eq } from "drizzle-orm";
+import { awardCredits } from "@/lib/credit-service";
 
 // Get building with units
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 // Update building
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireAuth(req);
+  const auth = await requireFullAccess(req);
   if (auth instanceof Response) return auth;
   const { id } = await params;
   const buildingId = parseInt(id);
@@ -40,6 +41,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   await db.update(schema.officeBuildings).set(updates).where(eq(schema.officeBuildings.id, buildingId));
+
+  awardCredits(auth.user.id, 1, "update_office", buildingId);
+
   const [updated] = db.select().from(schema.officeBuildings).where(eq(schema.officeBuildings.id, buildingId)).all();
   return NextResponse.json(updated);
 }

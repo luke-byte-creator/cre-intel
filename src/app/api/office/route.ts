@@ -1,7 +1,8 @@
 import { db, schema } from "@/db";
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFullAccess } from "@/lib/auth";
 import { sql, asc, desc } from "drizzle-orm";
+import { awardCredits } from "@/lib/credit-service";
 
 export const dynamic = "force-dynamic";
 
@@ -44,4 +45,28 @@ export async function GET(req: NextRequest) {
   const data = query.orderBy(dirFn(col)).all();
 
   return NextResponse.json({ data });
+}
+
+// Add a new office building
+export async function POST(req: NextRequest) {
+  const auth = await requireFullAccess(req);
+  if (auth instanceof Response) return auth;
+  const body = await req.json();
+
+  if (!body.address) return NextResponse.json({ error: "address required" }, { status: 400 });
+
+  const result = db.insert(schema.officeBuildings).values({
+    address: body.address,
+    buildingName: body.buildingName || null,
+    buildingClass: body.buildingClass || null,
+    totalSF: body.totalSF ? Number(body.totalSF) : null,
+    floors: body.floors ? Number(body.floors) : null,
+    yearBuilt: body.yearBuilt ? Number(body.yearBuilt) : null,
+    owner: body.owner || null,
+    neighborhood: body.neighborhood || null,
+  }).run();
+
+  
+
+  return NextResponse.json({ id: result.lastInsertRowid });
 }

@@ -1,6 +1,20 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import DealCalculator from "@/components/DealCalculator";
+
+interface Todo {
+  id: number;
+  dealId: number | null;
+  text: string;
+  completed: number;
+  sortOrder: number;
+  completedAt: string | null;
+  createdAt: string;
+  dealName: string | null;
+  dealProperty: string | null;
+  dealStage: string | null;
+}
 
 interface Comment {
   text: string;
@@ -175,8 +189,244 @@ function GenerateEmail({ deal, onRefreshDeal }: { deal: Deal; onRefreshDeal: () 
   );
 }
 
+/* Deal Todos inline in expanded view */
+function DealTodos({ dealId, todos, onToggle }: { dealId: number; todos: Todo[]; onToggle: (todo: Todo) => void }) {
+  const dealTodos = todos.filter(t => t.dealId === dealId);
+  if (dealTodos.length === 0) return null;
+  return (
+    <div className="space-y-1 pb-2 border-b border-card-border/50">
+      <p className="text-[10px] text-muted font-medium uppercase tracking-wider">Tasks</p>
+      {dealTodos.map(todo => (
+        <div key={todo.id} className="flex items-center gap-2">
+          <button
+            onClick={() => onToggle(todo)}
+            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+              todo.completed ? "bg-emerald-500 border-emerald-500" : "border-zinc-500 hover:border-emerald-400"
+            }`}
+          >
+            {todo.completed ? <span className="text-[8px] text-white">✓</span> : null}
+          </button>
+          <span className={`text-xs ${todo.completed ? "line-through text-muted/50" : "text-foreground/80"}`}>
+            {todo.text}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* Todo List Section */
+function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; todos: Todo[]; fetchTodos: () => void; fetchDeals: () => void }) {
+  const [newText, setNewText] = useState("");
+  const [hideCompleted, setHideCompleted] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestionFilter, setSuggestionFilter] = useState("");
+  const [cursorPos, setCursorPos] = useState(0);
+
+  const incompleteTodos = todos.filter(t => !t.completed);
+  const completedTodos = todos.filter(t => t.completed);
+
+  // Parse @mention from text — returns { dealId, cleanText } 
+  const parseMention = (text: string): { dealId: number | null; cleanText: string } => {
+    const mentionMatch = text.match(/@\[(.+?)\]\((\d+)\)/);
+    if (mentionMatch) {
+      const dealId = parseInt(mentionMatch[2]);
+      const cleanText = text.replace(/@\[.+?\]\(\d+\)/, "").trim();
+      return { dealId, cleanText };
+    }
+    return { dealId: null, cleanText: text.trim() };
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setNewText(val);
+    setCursorPos(e.target.selectionStart || 0);
+
+    // Check if user just typed @ 
+    const beforeCursor = val.slice(0, e.target.selectionStart || 0);
+    const atMatch = beforeCursor.match(/@([^@]*)$/);
+    if (atMatch) {
+      setSuggestionFilter(atMatch[1].toLowerCase());
+      setShowSuggestions(true);
+    } else {
+      setShowSuggestions(false);
+    }
+  };
+
+  const handleSelectDeal = (deal: Deal) => {
+    const beforeCursor = newText.slice(0, cursorPos);
+    const afterCursor = newText.slice(cursorPos);
+    const atIdx = beforeCursor.lastIndexOf("@");
+    const before = beforeCursor.slice(0, atIdx);
+    const inserted = `@[${deal.tenantName}](${deal.id})`;
+    setNewText((before + inserted + " " + afterCursor).trim());
+    setShowSuggestions(false);
+  };
+
+  const filteredDeals = deals.filter(d =>
+    d.tenantName.toLowerCase().includes(suggestionFilter) ||
+    d.propertyAddress.toLowerCase().includes(suggestionFilter)
+  );
+
+  const handleAdd = async () => {
+    if (!newText.trim()) return;
+    const { dealId, cleanText } = parseMention(newText);
+    if (!cleanText) return;
+    await fetch("/api/pipeline/todos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dealId, text: cleanText }),
+    });
+    setNewText("");
+    fetchTodos();
+    fetchDeals();
+  };
+
+  const handleToggle = async (todo: Todo) => {
+    await fetch(`/api/pipeline/todos/${todo.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ completed: todo.completed ? 0 : 1 }),
+    });
+    fetchTodos();
+    fetchDeals();
+  };
+
+  const handleDelete = async (id: number) => {
+    await fetch(`/api/pipeline/todos/${id}`, { method: "DELETE" });
+    fetchTodos();
+  };
+
+  const handleMove = async (todo: Todo, direction: "up" | "down") => {
+    const list = incompleteTodos;
+    const idx = list.findIndex(t => t.id === todo.id);
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= list.length) return;
+
+    const items = [
+      { id: list[idx].id, sortOrder: list[swapIdx].sortOrder },
+      { id: list[swapIdx].id, sortOrder: list[idx].sortOrder },
+    ];
+
+    await fetch("/api/pipeline/todos", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    fetchTodos();
+  };
+
+  // Render text with @mention highlighted
+  const renderTodoText = (todo: Todo) => (
+    <span className="text-sm text-foreground flex-1">
+      {todo.text}
+      {todo.dealName && (
+        <span className="text-[10px] text-muted bg-zinc-700/60 rounded-full px-2 py-0.5 ml-2 flex-shrink-0">{todo.dealName}</span>
+      )}
+    </span>
+  );
+
+  return (
+    <div className="bg-card border border-card-border rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold text-foreground">To Do</h2>
+          <span className="text-xs text-muted bg-zinc-700/50 rounded-full px-2 py-0.5">{incompleteTodos.length}</span>
+        </div>
+        <button
+          onClick={() => setHideCompleted(!hideCompleted)}
+          className="text-xs text-muted hover:text-foreground transition"
+        >
+          {hideCompleted ? "Show completed" : "Hide completed"}
+        </button>
+      </div>
+
+      {/* Add todo */}
+      <div className="relative flex gap-2 mb-4">
+        <div className="relative flex-1">
+          <input
+            value={newText}
+            onChange={handleInputChange}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !showSuggestions) handleAdd();
+              if (e.key === "Escape") setShowSuggestions(false);
+            }}
+            placeholder="Add a task… (type @ to link a deal)"
+            className="w-full bg-background border border-card-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted"
+          />
+          {showSuggestions && filteredDeals.length > 0 && (
+            <div className="absolute left-0 right-0 top-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto">
+              {filteredDeals.map(d => (
+                <button
+                  key={d.id}
+                  onClick={() => handleSelectDeal(d)}
+                  className="w-full text-left px-3 py-2 hover:bg-zinc-700 transition text-sm"
+                >
+                  <span className="text-white font-medium">{d.tenantName}</span>
+                  <span className="text-zinc-400 text-xs ml-2">{d.propertyAddress}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button onClick={handleAdd} disabled={!newText.trim()} className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 disabled:opacity-40 transition">
+          Add
+        </button>
+      </div>
+
+      {/* Incomplete todos */}
+      <div className="space-y-1">
+        {incompleteTodos.map((todo, idx) => (
+          <div key={todo.id} className="flex items-center gap-2 group py-1.5 px-2 rounded-lg hover:bg-zinc-800/50 transition">
+            <button
+              onClick={() => handleToggle(todo)}
+              className="w-5 h-5 rounded-full border-2 border-zinc-500 hover:border-emerald-400 flex items-center justify-center flex-shrink-0 transition-colors"
+            />
+            {renderTodoText(todo)}
+            <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
+              <button onClick={() => handleMove(todo, "up")} disabled={idx === 0} className="text-zinc-500 hover:text-foreground disabled:opacity-20 text-xs px-1">▲</button>
+              <button onClick={() => handleMove(todo, "down")} disabled={idx === incompleteTodos.length - 1} className="text-zinc-500 hover:text-foreground disabled:opacity-20 text-xs px-1">▼</button>
+              <button onClick={() => handleDelete(todo.id)} className="text-zinc-500 hover:text-red-400 text-xs px-1">✕</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Completed todos */}
+      {!hideCompleted && completedTodos.length > 0 && (
+        <>
+          <div className="border-t border-zinc-700/50 my-3" />
+          <div className="space-y-1">
+            {completedTodos.map(todo => (
+              <div key={todo.id} className="flex items-center gap-2 group py-1.5 px-2 rounded-lg hover:bg-zinc-800/50 transition">
+                <button
+                  onClick={() => handleToggle(todo)}
+                  className="w-5 h-5 rounded-full bg-emerald-500 border-2 border-emerald-500 flex items-center justify-center flex-shrink-0"
+                >
+                  <span className="text-[10px] text-white">✓</span>
+                </button>
+                <span className="text-sm text-muted/50 line-through flex-1">{todo.text}</span>
+                <span className="text-[10px] text-muted/40 bg-zinc-700/30 rounded-full px-2 py-0.5 flex-shrink-0">{todo.dealName}</span>
+                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                  <button onClick={() => handleDelete(todo.id)} className="text-zinc-500 hover:text-red-400 text-xs px-1">✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {todos.length === 0 && (
+        <p className="text-sm text-muted/50 text-center py-6">No tasks yet. Add one above.</p>
+      )}
+    </div>
+  );
+}
+
 export default function PipelinePage() {
+  const [activeTab, setActiveTab] = useState<"pipeline" | "calculator">("pipeline");
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -190,7 +440,12 @@ export default function PipelinePage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchDeals(); }, [fetchDeals]);
+  const fetchTodos = useCallback(async () => {
+    const res = await fetch("/api/pipeline/todos");
+    setTodos(await res.json());
+  }, []);
+
+  useEffect(() => { fetchDeals(); fetchTodos(); }, [fetchDeals, fetchTodos]);
 
   const handleDrop = async (stage: string, dealId: number) => {
     setDragOverStage(null);
@@ -240,20 +495,51 @@ export default function PipelinePage() {
     fetchDeals();
   };
 
+  const handleToggleTodo = async (todo: Todo) => {
+    await fetch(`/api/pipeline/todos/${todo.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ completed: todo.completed ? 0 : 1 }),
+    });
+    fetchTodos();
+    fetchDeals();
+  };
+
   const activeCount = deals.filter(d => d.stage !== "closed").length;
 
   if (loading) return <div className="p-8 text-muted">Loading pipeline…</div>;
 
   return (
     <div className="p-4 md:p-8 space-y-6">
+      {/* Tabs */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1 bg-zinc-800/50 rounded-lg p-1">
+          <button
+            onClick={() => setActiveTab("pipeline")}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${activeTab === "pipeline" ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-white"}`}
+          >Pipeline</button>
+          <button
+            onClick={() => setActiveTab("calculator")}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${activeTab === "calculator" ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-white"}`}
+          >Deal Calculator</button>
+        </div>
+        {activeTab === "pipeline" && (
+          <button onClick={() => setShowForm(!showForm)} className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 transition">
+            {showForm ? "Cancel" : "+ Add Deal"}
+          </button>
+        )}
+      </div>
+
+      {activeTab === "calculator" && (
+        <DealCalculator />
+      )}
+
+      {activeTab === "pipeline" && (<>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Deal Pipeline</h1>
           <p className="text-sm text-muted mt-1">{activeCount} Active Deal{activeCount !== 1 ? "s" : ""}</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 transition">
-          {showForm ? "Cancel" : "+ Add Deal"}
-        </button>
       </div>
 
       {showForm && (
@@ -319,6 +605,9 @@ export default function PipelinePage() {
                             <ContactField label="Phone" value={deal.tenantPhone || ""} placeholder="306-555-0000" onSave={v => handleUpdateContact(deal.id, "tenantPhone", v)} />
                           </div>
 
+                          {/* Deal todos */}
+                          <DealTodos dealId={deal.id} todos={todos} onToggle={handleToggleTodo} />
+
                           {/* Comment timeline */}
                           <div className="space-y-2 max-h-[300px] overflow-y-auto">
                             {comments.length === 0 && <p className="text-xs text-muted italic">No notes yet</p>}
@@ -359,6 +648,10 @@ export default function PipelinePage() {
           );
         })}
       </div>
+
+      {/* To Do Section */}
+      <TodoSection deals={deals} todos={todos} fetchTodos={fetchTodos} fetchDeals={fetchDeals} />
+      </>)}
     </div>
   );
 }

@@ -245,6 +245,9 @@ export const comps = sqliteTable("comps", {
   pptCode: integer("ppt_code"),
   pptDescriptor: text("ppt_descriptor"),
   armsLength: integer("arms_length", { mode: "boolean" }),
+  researchedUnavailable: integer("researched_unavailable").default(0),
+  researchedAt: text("researched_at"),
+  researchedBy: integer("researched_by"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_comps_type").on(table.type),
@@ -262,9 +265,28 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
-  role: text("role").notNull().default("user"),
+  role: text("role").notNull().default("member"),
+  creditBalance: real("credit_balance").notNull().default(14),
+  isExempt: integer("is_exempt").notNull().default(0),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-});
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_users_email").on(table.email),
+]);
+
+// Credit Ledger
+export const creditLedger = sqliteTable("credit_ledger", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  amount: real("amount").notNull(),
+  reason: text("reason").notNull(),
+  compId: integer("comp_id"),
+  metadata: text("metadata"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_credit_ledger_user_id").on(table.userId),
+  index("idx_credit_ledger_created_at").on(table.createdAt),
+]);
 
 // Auth Sessions
 export const authSessions = sqliteTable("auth_sessions", {
@@ -416,6 +438,55 @@ export const retailDevelopments = sqliteTable("retail_developments", {
   updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
 });
 
+// Market Stats (manual input / overrides for dashboard)
+export const marketStats = sqliteTable("market_stats", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  category: text("category").notNull(), // 'office_downtown', 'office_suburban', 'industrial', 'retail'
+  metric: text("metric").notNull(), // 'inventory_sf', 'vacancy_rate', 'absorption', 'new_supply', 'avg_rent', 'avg_sale_psf', etc.
+  year: integer("year").notNull(),
+  isForecast: integer("is_forecast").notNull().default(0),
+  value: real("value"),
+  isOverride: integer("is_override").notNull().default(0),
+  updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
+  updatedBy: integer("updated_by"),
+}, (table) => [
+  index("idx_market_stats_lookup").on(table.category, table.metric, table.year),
+]);
+
+// Industrial Vacancies
+export const industrialVacancies = sqliteTable("industrial_vacancies", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  buildingId: integer("building_id"),
+  address: text("address").notNull(),
+  availableSF: real("available_sf"),
+  totalBuildingSF: real("total_building_sf"),
+  listingBrokerage: text("listing_brokerage"),
+  listingType: text("listing_type"),
+  quarterRecorded: text("quarter_recorded").notNull(),
+  yearRecorded: integer("year_recorded").notNull(),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at"),
+}, (table) => [
+  index("idx_industrial_vacancies_address").on(table.address),
+  index("idx_industrial_vacancies_quarter").on(table.quarterRecorded),
+  index("idx_industrial_vacancies_building").on(table.buildingId),
+]);
+
+// Pipeline Todos
+export const pipelineTodos = sqliteTable("pipeline_todos", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  dealId: integer("deal_id").references(() => deals.id),
+  text: text("text").notNull(),
+  completed: integer("completed").default(0),
+  sortOrder: integer("sort_order").notNull(),
+  completedAt: text("completed_at"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_pipeline_todos_deal_id").on(table.dealId),
+  index("idx_pipeline_todos_sort_order").on(table.sortOrder),
+]);
+
 // Retail Tenants
 export const retailTenants = sqliteTable("retail_tenants", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -424,7 +495,15 @@ export const retailTenants = sqliteTable("retail_tenants", {
   category: text("category"),
   comment: text("comment"),
   status: text("status").default("active"),
-  areaSF: integer("area_sf"),
+  areaSF: real("area_sf"),
+  unitSuite: text("unit_suite"),
+  netRentPSF: real("net_rent_psf"),
+  annualRent: real("annual_rent"),
+  leaseStart: text("lease_start"),
+  leaseExpiry: text("lease_expiry"),
+  termMonths: integer("term_months"),
+  rentSteps: text("rent_steps"),
+  leaseType: text("lease_type"),
   sortOrder: integer("sort_order").default(0),
   updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
 }, (table) => [

@@ -1,7 +1,9 @@
 import { db, schema } from "@/db";
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireFullAccess } from "@/lib/auth";
 import { sql, asc, desc } from "drizzle-orm";
+import { awardCredits } from "@/lib/credit-service";
+import { CREDIT_CONFIG, isCompResearched, isCompKeyFieldsComplete } from "@/lib/credits";
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req);
@@ -19,6 +21,8 @@ export async function GET(req: NextRequest) {
   const sizeMin = params.get("sizeMin");
   const sizeMax = params.get("sizeMax");
   const sortBy = params.get("sortBy") || "sale_date";
+  const hideResearched = params.get("hideResearched") === "true";
+  const researchedOnly = params.get("researchedOnly") === "true";
   const sortDir = params.get("sortDir") || "desc";
   const page = parseInt(params.get("page") || "0");
   const limit = parseInt(params.get("limit") || "50");
@@ -48,6 +52,8 @@ export async function GET(req: NextRequest) {
     )`);
   }
 
+  // hideResearched is applied post-query to support auto-researched detection
+
   const where = conditions.length > 0 ? sql.join(conditions, sql` AND `) : sql`1=1`;
 
   const validCols: Record<string, unknown> = {
@@ -64,6 +70,44 @@ export async function GET(req: NextRequest) {
 
   const sortCol = validCols[sortBy] || schema.comps.saleDate;
 
+  const needsPostFilter = hideResearched || researchedOnly;
+  const twelveMonthsAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+
+  const enrich = (comp: typeof schema.comps.$inferSelect) => {
+    const manuallyFlagged = comp.researchedUnavailable === 1;
+    const isExpired = manuallyFlagged && comp.researchedAt != null && comp.researchedAt < twelveMonthsAgo;
+    const keyFieldsComplete = isCompKeyFieldsComplete(comp as unknown as Record<string, unknown>);
+    const researched = isCompResearched(comp as unknown as Record<string, unknown>);
+    return {
+      ...comp,
+      researchedExpired: isExpired,
+      isResearched: researched && !isExpired,
+      isAutoResearched: keyFieldsComplete && !manuallyFlagged,
+    };
+  };
+
+  if (needsPostFilter) {
+    // Fetch all matching rows, filter by research status, then paginate in memory
+    const allData = await db.select()
+      .from(schema.comps)
+      .where(where)
+      .orderBy(sortDir === "asc" ? asc(sortCol as unknown as Parameters<typeof asc>[0]) : desc(sortCol as unknown as Parameters<typeof desc>[0]));
+
+    const enriched = allData.map(enrich);
+    const filtered = hideResearched
+      ? enriched.filter(c => !c.isResearched)
+      : enriched.filter(c => c.isResearched);
+
+    const paged = filtered.slice(page * limit, (page + 1) * limit);
+
+    return NextResponse.json({
+      data: paged,
+      total: filtered.length,
+      page,
+      limit,
+    });
+  }
+
   const [countResult] = await db.select({ count: sql<number>`count(*)` })
     .from(schema.comps)
     .where(where);
@@ -75,10 +119,33 @@ export async function GET(req: NextRequest) {
     .limit(limit)
     .offset(page * limit);
 
+  const enriched = data.map(enrich);
+
   return NextResponse.json({
-    data,
+    data: enriched,
     total: countResult.count,
     page,
     limit,
   });
+}
+
+export async function POST(req: NextRequest) {
+  const auth = await requireFullAccess(req);
+  if (auth instanceof Response) return auth;
+
+  const body = await req.json();
+  if (!body.address || !body.type) {
+    return NextResponse.json({ error: "address and type required" }, { status: 400 });
+  }
+
+  const [comp] = db.insert(schema.comps).values({
+    type: body.type,
+    address: body.address,
+    ...body,
+  }).returning().all();
+
+  // Award credits for adding a comp
+  awardCredits(auth.user.id, CREDIT_CONFIG.ACTIONS.ADD_COMP, "add_comp", comp.id);
+
+  return NextResponse.json(comp, { status: 201 });
 }
