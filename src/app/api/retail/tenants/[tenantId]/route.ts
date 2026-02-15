@@ -23,7 +23,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ te
     }
   }
   await db.update(schema.retailTenants).set(updates).where(eq(schema.retailTenants.id, parseInt(tenantId)));
-  awardCredits(auth.user.id, Math.max(1, fieldChanges), "update_retail");
+  const creditAmount = fieldChanges >= 5 ? 2 : 1;
+  awardCredits(auth.user.id, creditAmount, "update_retail");
   return NextResponse.json({ ok: true });
 }
 

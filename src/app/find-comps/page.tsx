@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 
 interface Comp {
   id: number;
@@ -334,8 +334,8 @@ export default function FindCompsPage() {
                 </thead>
                 <tbody>
                   {results.map(r => (
-                    <>
-                      <tr key={r.id}
+                    <React.Fragment key={r.id}>
+                      <tr
                         className={`border-b border-card-border/50 hover:bg-card-hover/30 cursor-pointer transition-colors ${expanded === r.id ? "bg-card-hover/20" : ""}`}
                       >
                         <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
@@ -390,7 +390,7 @@ export default function FindCompsPage() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>

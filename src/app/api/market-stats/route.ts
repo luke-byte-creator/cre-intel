@@ -158,6 +158,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const { requireFullAccess } = await import("@/lib/auth");
+  const auth = await requireFullAccess(req);
+  if (auth instanceof Response) return auth;
+
   const body = await req.json();
   const { category, metric, year, value, isForecast } = body;
 

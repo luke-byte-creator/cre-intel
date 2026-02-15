@@ -31,6 +31,10 @@ function matchBuilding(address: string): { id: string | null; areaSF: number | n
 }
 
 export async function GET(req: NextRequest) {
+  const { requireAuth } = await import("@/lib/auth");
+  const auth = await requireAuth(req);
+  if (auth instanceof Response) return auth;
+
   const { searchParams } = new URL(req.url);
   const quarter = searchParams.get("quarter");
   const year = searchParams.get("year");
