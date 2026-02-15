@@ -1,0 +1,976 @@
+"use client";
+
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import type { AuditEntry, ConflictEntry, TenantRow } from "@/lib/extraction/extract-documents";
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+type ViewState = "upload" | "review" | "complete";
+
+interface Analysis {
+  id: number;
+  name: string;
+  assetClass: string;
+  status: string;
+  inputs?: string;
+  createdAt: string;
+}
+
+interface UploadedFile {
+  name: string;
+  size: number;
+  uploadedAt: string;
+  file?: File;
+}
+
+type Confidence = "high" | "medium" | "low" | "default" | "manual";
+
+interface FieldMeta {
+  confidence: Confidence;
+  sourceDoc?: string;
+  page?: string;
+  reasoning?: string;
+  sourceText?: string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Inputs = Record<string, any>;
+
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const ASSET_CLASSES = [
+  { value: "office_retail_industrial", label: "Office / Retail / Industrial Acquisition", enabled: true },
+  { value: "multifamily", label: "Multifamily Acquisition", enabled: false },
+  { value: "industrial_dev", label: "Industrial Development", enabled: false },
+  { value: "stnl", label: "STNL Valuation", enabled: false },
+];
+
+const ACCEPTED_EXTENSIONS = ".pdf,.xlsx,.xls,.csv,.jpg,.png";
+const MAX_FILES = 10;
+const MAX_SIZE = 50 * 1024 * 1024;
+
+const TABS = ["Property", "Income", "Expenses", "CapEx", "Financing", "Exit"] as const;
+type Tab = (typeof TABS)[number];
+
+const STATUS_COLORS: Record<string, string> = {
+  draft: "bg-yellow-500/15 text-yellow-400",
+  extracted: "bg-blue-500/15 text-blue-400",
+  reviewed: "bg-emerald-500/15 text-emerald-400",
+  complete: "bg-purple-500/15 text-purple-400",
+};
+
+const CONFIDENCE_COLORS: Record<Confidence, string> = {
+  high: "bg-emerald-400",
+  medium: "bg-yellow-400",
+  low: "bg-red-400",
+  default: "bg-gray-400",
+  manual: "bg-blue-400",
+};
+
+const EXTRACTION_STATUS_MESSAGES = [
+  "Classifying documents...",
+  "Extracting data...",
+  "Cross-validating...",
+  "Applying defaults...",
+];
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatNumber(n: number | undefined | null): string {
+  if (n === undefined || n === null) return "";
+  return n.toLocaleString("en-CA");
+}
+
+function parseNumber(s: string): number | undefined {
+  const cleaned = s.replace(/[,$\s]/g, "");
+  if (!cleaned) return undefined;
+  const n = Number(cleaned);
+  return isNaN(n) ? undefined : n;
+}
+
+function formatPct(n: number | undefined | null): string {
+  if (n === undefined || n === null) return "";
+  return (n * 100).toFixed(2);
+}
+
+function parsePct(s: string): number | undefined {
+  const n = parseNumber(s);
+  if (n === undefined) return undefined;
+  return n / 100;
+}
+
+// ─── Field definitions per tab ──────────────────────────────────────────────
+
+interface FieldDef {
+  key: string;
+  label: string;
+  type: "text" | "number" | "pct" | "select";
+  options?: string[];
+  placeholder?: string;
+}
+
+const TAB_FIELDS: Record<Tab, FieldDef[]> = {
+  Property: [
+    { key: "propertyName", label: "Property Name", type: "text" },
+    { key: "propertyAddress", label: "Address", type: "text" },
+    { key: "city", label: "City", type: "text" },
+    { key: "propertyType", label: "Property Type", type: "select", options: ["Office", "Retail", "Industrial", "Mixed-Use"] },
+    { key: "nraSF", label: "NRA (SF)", type: "number" },
+    { key: "landArea", label: "Land Area (acres)", type: "number" },
+    { key: "yearBuilt", label: "Year Built", type: "number" },
+    { key: "floors", label: "Floors", type: "number" },
+    { key: "parking", label: "Parking Stalls", type: "text" },
+  ],
+  Income: [
+    { key: "baseRent", label: "Base Rent (Annual)", type: "number" },
+    { key: "recoveryIncome", label: "Recovery Income", type: "number" },
+    { key: "parkingIncome", label: "Parking Income", type: "number" },
+    { key: "otherIncome", label: "Other Income", type: "number" },
+    { key: "vacancyRate", label: "Vacancy Rate", type: "pct" },
+    { key: "askingPrice", label: "Asking / Purchase Price", type: "number" },
+    { key: "askingCapRate", label: "Asking Cap Rate", type: "pct" },
+  ],
+  Expenses: [
+    { key: "propertyTax", label: "Property Tax", type: "number" },
+    { key: "insurance", label: "Insurance", type: "number" },
+    { key: "utilities", label: "Utilities", type: "number" },
+    { key: "repairsMaint", label: "Repairs & Maintenance", type: "number" },
+    { key: "managementPct", label: "Management (% of EGI)", type: "pct" },
+    { key: "admin", label: "Administrative", type: "number" },
+    { key: "payroll", label: "Payroll", type: "number" },
+    { key: "marketing", label: "Marketing", type: "number" },
+    { key: "otherExpenses", label: "Other Expenses", type: "number" },
+  ],
+  CapEx: [
+    { key: "capitalReservesPSF", label: "Capital Reserves ($/SF)", type: "number", placeholder: "0.25" },
+    { key: "closingCostsPct", label: "Closing Costs %", type: "pct", placeholder: "2.00" },
+    { key: "sellingCostsPct", label: "Selling Costs %", type: "pct", placeholder: "2.00" },
+  ],
+  Financing: [
+    { key: "loanAmount", label: "Loan Amount", type: "number", placeholder: "0" },
+    { key: "interestRate", label: "Interest Rate", type: "pct", placeholder: "5.00" },
+    { key: "amortizationYears", label: "Amortization (years)", type: "number", placeholder: "25" },
+    { key: "loanTerm", label: "Loan Term (years)", type: "number", placeholder: "5" },
+    { key: "ioYears", label: "I/O Period (years)", type: "number", placeholder: "0" },
+    { key: "lenderFeesPct", label: "Lender Fees %", type: "pct", placeholder: "1.00" },
+  ],
+  Exit: [
+    { key: "exitCapRate", label: "Exit Cap Rate", type: "pct", placeholder: "6.50" },
+    { key: "analysisPeriod", label: "Analysis Period (years)", type: "number", placeholder: "10" },
+    { key: "discountRate", label: "Discount Rate", type: "pct", placeholder: "8.00" },
+    { key: "incomeGrowth", label: "Income Growth %/yr", type: "pct", placeholder: "2.00" },
+    { key: "expenseGrowth", label: "Expense Growth %/yr", type: "pct", placeholder: "2.00" },
+    { key: "propertyTaxGrowth", label: "Property Tax Growth %/yr", type: "pct", placeholder: "3.00" },
+    { key: "capexGrowth", label: "CapEx Growth %/yr", type: "pct", placeholder: "2.00" },
+  ],
+};
+
+// ─── Sub-components ─────────────────────────────────────────────────────────
+
+function ConfidenceDot({ meta, onClick }: { meta?: FieldMeta; onClick?: () => void }) {
+  const conf = meta?.confidence || "low";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-2.5 h-2.5 rounded-full shrink-0 ${CONFIDENCE_COLORS[conf]} cursor-pointer hover:ring-2 hover:ring-white/20 transition`}
+      title={conf}
+    />
+  );
+}
+
+function SourcePopover({ meta, onClose }: { meta: FieldMeta; onClose: () => void }) {
+  return (
+    <div className="absolute right-0 top-8 z-50 w-72 bg-gray-800 border border-gray-600 rounded-lg p-3 shadow-xl text-xs">
+      <div className="flex justify-between items-center mb-2">
+        <span className="font-semibold text-gray-200">Source Details</span>
+        <button onClick={onClose} className="text-gray-400 hover:text-white">✕</button>
+      </div>
+      <div className="space-y-1.5 text-gray-300">
+        <div><span className="text-gray-500">Document:</span> {meta.sourceDoc || "—"}</div>
+        <div><span className="text-gray-500">Page:</span> {meta.page || "—"}</div>
+        <div><span className="text-gray-500">Confidence:</span> {meta.confidence}</div>
+        {meta.reasoning && <div><span className="text-gray-500">Reasoning:</span> {meta.reasoning}</div>}
+        {meta.sourceText && <div className="mt-1 p-1.5 bg-gray-900 rounded text-[11px] italic">{meta.sourceText}</div>}
+      </div>
+    </div>
+  );
+}
+
+function ReviewField({
+  field,
+  value,
+  meta,
+  onChange,
+}: {
+  field: FieldDef;
+  value: string | number | undefined;
+  meta?: FieldMeta;
+  onChange: (val: string | number | undefined) => void;
+}) {
+  const [popoverOpen, setPopoverOpen] = useState(false);
+
+  const displayValue = field.type === "pct"
+    ? formatPct(value as number)
+    : field.type === "number"
+      ? (value !== undefined && value !== null ? String(value) : "")
+      : (value ?? "");
+
+  const handleChange = (raw: string) => {
+    if (field.type === "pct") {
+      onChange(parsePct(raw));
+    } else if (field.type === "number") {
+      onChange(parseNumber(raw));
+    } else {
+      onChange(raw || undefined);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 py-1.5">
+      <label className="w-48 shrink-0 text-sm text-gray-400">{field.label}</label>
+      <div className="flex-1 relative">
+        {field.type === "select" ? (
+          <select
+            value={String(value ?? "")}
+            onChange={e => onChange(e.target.value || undefined)}
+            className="w-full bg-white/[0.04] border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100"
+          >
+            <option value="">—</option>
+            {field.options?.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        ) : (
+          <input
+            type="text"
+            value={displayValue}
+            onChange={e => handleChange(e.target.value)}
+            placeholder={field.placeholder}
+            className={`w-full bg-white/[0.04] border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 ${field.type === "number" || field.type === "pct" ? "text-right" : ""}`}
+          />
+        )}
+      </div>
+      <div className="relative">
+        <ConfidenceDot meta={meta} onClick={() => setPopoverOpen(!popoverOpen)} />
+        {popoverOpen && meta && <SourcePopover meta={meta} onClose={() => setPopoverOpen(false)} />}
+      </div>
+    </div>
+  );
+}
+
+// ─── Rent Roll Table ────────────────────────────────────────────────────────
+
+const EMPTY_TENANT: TenantRow = {
+  tenantName: "",
+  suite: "",
+  sf: 0,
+  leaseStart: "",
+  leaseExpiry: "",
+  baseRentPSF: 0,
+  baseRentAnnual: 0,
+  recoveryType: "Net",
+};
+
+function RentRollTable({
+  tenants,
+  onChange,
+}: {
+  tenants: TenantRow[];
+  onChange: (t: TenantRow[]) => void;
+}) {
+  const updateRow = (idx: number, field: keyof TenantRow, val: string | number | boolean | undefined) => {
+    const updated = [...tenants];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (updated[idx] as any)[field] = val;
+    // Auto-calc annual rent
+    if (field === "baseRentPSF" || field === "sf") {
+      updated[idx].baseRentAnnual = (updated[idx].sf || 0) * (updated[idx].baseRentPSF || 0);
+    }
+    onChange(updated);
+  };
+
+  const addRow = () => onChange([...tenants, { ...EMPTY_TENANT }]);
+  const removeRow = (idx: number) => onChange(tenants.filter((_, i) => i !== idx));
+
+  const totalSF = tenants.reduce((s, t) => s + (t.sf || 0), 0);
+  const totalRent = tenants.reduce((s, t) => s + (t.baseRentAnnual || 0), 0);
+  const wtdAvgRent = totalSF > 0 ? totalRent / totalSF : 0;
+
+  return (
+    <div className="mt-6">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-200">Rent Roll</h3>
+        <button onClick={addRow} className="text-xs text-accent hover:text-accent/80 transition">+ Add Tenant</button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-gray-500 border-b border-gray-700">
+              <th className="text-left py-1.5 px-1 font-medium">Tenant</th>
+              <th className="text-left py-1.5 px-1 font-medium">Suite</th>
+              <th className="text-right py-1.5 px-1 font-medium">SF</th>
+              <th className="text-left py-1.5 px-1 font-medium">Lease Start</th>
+              <th className="text-left py-1.5 px-1 font-medium">Lease Expiry</th>
+              <th className="text-right py-1.5 px-1 font-medium">Rent PSF</th>
+              <th className="text-right py-1.5 px-1 font-medium">Annual Rent</th>
+              <th className="text-left py-1.5 px-1 font-medium">Recovery</th>
+              <th className="py-1.5 px-1"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {tenants.map((t, i) => (
+              <tr key={i} className="border-b border-gray-800 hover:bg-white/[0.02]">
+                <td className="py-1 px-1"><input className="w-full bg-transparent text-gray-100 text-xs" value={t.tenantName} onChange={e => updateRow(i, "tenantName", e.target.value)} /></td>
+                <td className="py-1 px-1"><input className="w-16 bg-transparent text-gray-100 text-xs" value={t.suite || ""} onChange={e => updateRow(i, "suite", e.target.value)} /></td>
+                <td className="py-1 px-1"><input className="w-16 bg-transparent text-gray-100 text-xs text-right" type="number" value={t.sf || ""} onChange={e => updateRow(i, "sf", Number(e.target.value) || 0)} /></td>
+                <td className="py-1 px-1"><input className="w-24 bg-transparent text-gray-100 text-xs" value={t.leaseStart || ""} onChange={e => updateRow(i, "leaseStart", e.target.value)} /></td>
+                <td className="py-1 px-1"><input className="w-24 bg-transparent text-gray-100 text-xs" value={t.leaseExpiry || ""} onChange={e => updateRow(i, "leaseExpiry", e.target.value)} /></td>
+                <td className="py-1 px-1"><input className="w-16 bg-transparent text-gray-100 text-xs text-right" type="number" step="0.01" value={t.baseRentPSF || ""} onChange={e => updateRow(i, "baseRentPSF", Number(e.target.value) || 0)} /></td>
+                <td className="py-1 px-1 text-right text-gray-300">{formatNumber(t.baseRentAnnual)}</td>
+                <td className="py-1 px-1">
+                  <select className="bg-transparent text-gray-100 text-xs" value={t.recoveryType || ""} onChange={e => updateRow(i, "recoveryType", e.target.value)}>
+                    <option value="Net">Net</option>
+                    <option value="Gross">Gross</option>
+                    <option value="Semi-Gross">Semi-Gross</option>
+                  </select>
+                </td>
+                <td className="py-1 px-1">
+                  <button onClick={() => removeRow(i)} className="text-gray-600 hover:text-red-400 text-xs">✕</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-gray-600 text-gray-300 font-medium">
+              <td className="py-1.5 px-1" colSpan={2}>Totals</td>
+              <td className="py-1.5 px-1 text-right">{formatNumber(totalSF)}</td>
+              <td colSpan={3}></td>
+              <td className="py-1.5 px-1 text-right">{formatNumber(totalRent)}</td>
+              <td colSpan={2}></td>
+            </tr>
+            <tr className="text-gray-400 text-[11px]">
+              <td className="py-0.5 px-1" colSpan={2}>Wtd Avg Rent PSF</td>
+              <td className="py-0.5 px-1 text-right" colSpan={5}>${wtdAvgRent.toFixed(2)}</td>
+              <td colSpan={2}></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Conflicts Section ──────────────────────────────────────────────────────
+
+function ConflictsSection({
+  conflicts,
+  inputs,
+  onResolve,
+}: {
+  conflicts: ConflictEntry[];
+  inputs: Inputs;
+  onResolve: (field: string, value: string | number) => void;
+}) {
+  if (!conflicts.length) return null;
+  return (
+    <div className="mt-4 bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-4">
+      <h3 className="text-sm font-semibold text-yellow-400 mb-3">⚠ Conflicts ({conflicts.length})</h3>
+      <div className="space-y-3">
+        {conflicts.map((c, i) => (
+          <div key={i} className="text-sm">
+            <div className="text-gray-300 font-medium mb-1">{c.field}</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {c.values.map((v, j) => (
+                <button
+                  key={j}
+                  onClick={() => onResolve(c.field, v.value)}
+                  className={`px-2 py-1 rounded text-xs transition ${
+                    inputs[c.field] === v.value
+                      ? "bg-accent/20 text-accent border border-accent/40"
+                      : "bg-white/[0.04] text-gray-400 border border-gray-700 hover:text-gray-200"
+                  }`}
+                >
+                  {String(v.value)} <span className="text-gray-500 ml-1">({v.label})</span>
+                </button>
+              ))}
+            </div>
+            <div className="text-[11px] text-gray-500 mt-1">{c.resolution}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Main Page Component
+// ═══════════════════════════════════════════════════════════════════════════
+
+export default function UnderwritePage() {
+  // --- Shared state ---
+  const [view, setView] = useState<ViewState>("upload");
+  const [analyses, setAnalyses] = useState<Analysis[]>([]);
+  const [currentId, setCurrentId] = useState<number | null>(null);
+
+  // --- Upload state ---
+  const [assetClass, setAssetClass] = useState("office_retail_industrial");
+  const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [extracting, setExtracting] = useState(false);
+  const [extractStatus, setExtractStatus] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // --- Review state ---
+  const [inputs, setInputs] = useState<Inputs>({});
+  const [fieldMeta, setFieldMeta] = useState<Record<string, FieldMeta>>({});
+  const [conflicts, setConflicts] = useState<ConflictEntry[]>([]);
+  const [auditTrail, setAuditTrail] = useState<AuditEntry[]>([]);
+  const [analysisName, setAnalysisName] = useState("");
+  const [activeTab, setActiveTab] = useState<Tab>("Property");
+  const [generating, setGenerating] = useState(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // --- Complete state ---
+  const [downloading, setDownloading] = useState(false);
+
+  // Load analyses list
+  useEffect(() => {
+    fetch("/api/underwrite").then(r => r.json()).then(setAnalyses).catch(() => {});
+  }, []);
+
+  // ─── Upload handlers ────────────────────────────────────────────────────
+
+  const addFiles = useCallback((incoming: FileList | File[]) => {
+    const arr = Array.from(incoming);
+    setFiles(prev => {
+      const combined = [...prev];
+      for (const f of arr) {
+        if (combined.length >= MAX_FILES) break;
+        if (f.size > MAX_SIZE) continue;
+        if (combined.some(e => e.name === f.name)) continue;
+        combined.push({ name: f.name, size: f.size, uploadedAt: "", file: f });
+      }
+      return combined;
+    });
+  }, []);
+
+  const removeFile = (name: string) => setFiles(prev => prev.filter(f => f.name !== name));
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+  }, [addFiles]);
+
+  async function handleExtract() {
+    if (!files.length) return;
+    setExtracting(true);
+
+    // Cycle status messages
+    let msgIdx = 0;
+    setExtractStatus(EXTRACTION_STATUS_MESSAGES[0]);
+    const interval = setInterval(() => {
+      msgIdx = Math.min(msgIdx + 1, EXTRACTION_STATUS_MESSAGES.length - 1);
+      setExtractStatus(EXTRACTION_STATUS_MESSAGES[msgIdx]);
+    }, 3000);
+
+    try {
+      // 1. Create analysis
+      const res = await fetch("/api/underwrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: files[0].name.replace(/\.[^.]+$/, ""), assetClass }),
+      });
+      const analysis = await res.json();
+      if (!res.ok) throw new Error(analysis.error);
+
+      // 2. Upload files
+      for (const f of files) {
+        if (!f.file) continue;
+        const fd = new FormData();
+        fd.append("file", f.file);
+        await fetch(`/api/underwrite/${analysis.id}/upload`, { method: "POST", body: fd });
+      }
+
+      // 3. Extract
+      const extractRes = await fetch(`/api/underwrite/${analysis.id}/extract`, { method: "POST" });
+      const extractData = await extractRes.json();
+      if (!extractRes.ok) throw new Error(extractData.error);
+
+      // 4. Transition to review
+      setCurrentId(analysis.id);
+      setAnalysisName(analysis.name);
+      setInputs(extractData.inputs || {});
+      setAuditTrail(extractData.auditTrail || []);
+      setConflicts(extractData.conflicts || []);
+      buildFieldMeta(extractData.auditTrail || []);
+      setView("review");
+
+      // Refresh list
+      const list = await fetch("/api/underwrite").then(r => r.json());
+      setAnalyses(list);
+      setFiles([]);
+    } catch (err) {
+      console.error(err);
+      setExtractStatus(`Error: ${(err as Error).message}`);
+      setTimeout(() => setExtracting(false), 3000);
+      return;
+    } finally {
+      clearInterval(interval);
+      setExtracting(false);
+    }
+  }
+
+  // ─── Review handlers ───────────────────────────────────────────────────
+
+  function buildFieldMeta(trail: AuditEntry[]) {
+    const meta: Record<string, FieldMeta> = {};
+    for (const entry of trail) {
+      meta[entry.field] = {
+        confidence: entry.confidence,
+        sourceDoc: entry.sourceDoc,
+        page: entry.page,
+        reasoning: entry.reasoning,
+        sourceText: entry.sourceText,
+      };
+    }
+    setFieldMeta(meta);
+  }
+
+  function updateField(key: string, value: string | number | undefined) {
+    setInputs(prev => ({ ...prev, [key]: value }));
+    setFieldMeta(prev => ({
+      ...prev,
+      [key]: { ...prev[key], confidence: "manual" as Confidence },
+    }));
+    debouncedSave();
+  }
+
+  function debouncedSave() {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      if (!currentId) return;
+      fetch(`/api/underwrite/${currentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs: JSON.stringify(inputs) }),
+      }).catch(console.error);
+    }, 1500);
+  }
+
+  async function openAnalysis(a: Analysis) {
+    setCurrentId(a.id);
+    setAnalysisName(a.name);
+
+    if (a.status === "complete") {
+      const parsed = a.inputs ? JSON.parse(a.inputs) : {};
+      setInputs(parsed);
+      setView("complete");
+      return;
+    }
+
+    // Fetch latest
+    const res = await fetch(`/api/underwrite/${a.id}`);
+    const data = await res.json();
+    const parsed = data.inputs ? JSON.parse(data.inputs) : {};
+    setInputs(parsed);
+    setConflicts([]);
+    setAuditTrail([]);
+    setFieldMeta({});
+    setView(data.status === "extracted" || data.status === "reviewed" ? "review" : "upload");
+  }
+
+  // ─── Summary stats ──────────────────────────────────────────────────────
+
+  const summaryStats = useMemo(() => {
+    const allFields = TABS.flatMap(t => TAB_FIELDS[t]);
+    let extracted = 0, needReview = 0, notFound = 0;
+    for (const f of allFields) {
+      const m = fieldMeta[f.key];
+      const hasVal = inputs[f.key] !== undefined && inputs[f.key] !== null && inputs[f.key] !== "";
+      if (!m && !hasVal) { notFound++; continue; }
+      if (m?.confidence === "low" || (!hasVal && m)) { notFound++; continue; }
+      if (m?.confidence === "medium") { needReview++; extracted++; continue; }
+      if (hasVal) extracted++;
+    }
+    return { total: allFields.length, extracted, needReview, notFound, docs: auditTrail.length > 0 ? new Set(auditTrail.map(a => a.sourceDoc)).size : 0 };
+  }, [inputs, fieldMeta, auditTrail]);
+
+  const redCount = useMemo(() => {
+    return TABS.flatMap(t => TAB_FIELDS[t]).filter(f => {
+      const m = fieldMeta[f.key];
+      const hasVal = inputs[f.key] !== undefined && inputs[f.key] !== null && inputs[f.key] !== "";
+      return !hasVal && (!m || m.confidence === "low");
+    }).length;
+  }, [inputs, fieldMeta]);
+
+  // ─── Generate ───────────────────────────────────────────────────────────
+
+  async function handleGenerate() {
+    if (!currentId) return;
+    setGenerating(true);
+    try {
+      // Save latest
+      await fetch(`/api/underwrite/${currentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs: JSON.stringify(inputs), status: "reviewed" }),
+      });
+
+      const res = await fetch(`/api/underwrite/${currentId}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auditTrail }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
+      setView("complete");
+      const list = await fetch("/api/underwrite").then(r => r.json());
+      setAnalyses(list);
+    } catch (err) {
+      console.error(err);
+      alert(`Generation failed: ${(err as Error).message}`);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  // ─── Download ───────────────────────────────────────────────────────────
+
+  async function handleDownload() {
+    if (!currentId) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(`/api/underwrite/${currentId}/download`);
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${analysisName.replace(/[^a-zA-Z0-9_-]/g, "_")}_underwriting.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ─── UPLOAD VIEW ────────────────────────────────────────────────────────
+
+  if (view === "upload") {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Underwriter</h1>
+          <p className="text-sm text-muted mt-1">AI-Powered Financial Modeling</p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Asset Class */}
+          <div className="lg:col-span-3">
+            <div className="bg-card border border-card-border rounded-xl p-5">
+              <h2 className="text-sm font-semibold text-foreground mb-3">Asset Class</h2>
+              <div className="space-y-2">
+                {ASSET_CLASSES.map(ac => (
+                  <label
+                    key={ac.value}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all text-sm ${
+                      !ac.enabled ? "opacity-40 cursor-not-allowed" :
+                      assetClass === ac.value ? "bg-accent/12 text-accent border border-accent/30" : "text-muted hover:text-foreground hover:bg-white/[0.04] border border-transparent"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="assetClass"
+                      value={ac.value}
+                      checked={assetClass === ac.value}
+                      disabled={!ac.enabled}
+                      onChange={() => setAssetClass(ac.value)}
+                      className="accent-accent"
+                    />
+                    <span>{ac.label}</span>
+                    {!ac.enabled && <span className="text-[10px] ml-auto opacity-60">Soon</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Upload */}
+          <div className="lg:col-span-5">
+            <div className="bg-card border border-card-border rounded-xl p-5">
+              <h2 className="text-sm font-semibold text-foreground mb-3">Documents</h2>
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => inputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+                  dragOver ? "border-accent bg-accent/5" : "border-card-border hover:border-muted/40"
+                }`}
+              >
+                <input
+                  ref={inputRef}
+                  type="file"
+                  multiple
+                  accept={ACCEPTED_EXTENSIONS}
+                  className="hidden"
+                  onChange={e => e.target.files && addFiles(e.target.files)}
+                />
+                <svg className="w-10 h-10 mx-auto text-muted/40 mb-3" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.338 5.25 5.25 0 013.553 6.96A4.125 4.125 0 0118 19.5H6.75z" />
+                </svg>
+                <p className="text-sm text-muted">Drag & drop or <span className="text-accent">browse</span></p>
+                <p className="text-xs text-muted/60 mt-1">PDF, Excel, CSV, Images · Max 50MB · Up to 10 files</p>
+              </div>
+
+              {files.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {files.map(f => (
+                    <div key={f.name} className="flex items-center justify-between px-3 py-2 bg-white/[0.02] border border-card-border rounded-lg">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <svg className="w-4 h-4 text-muted shrink-0" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                        </svg>
+                        <span className="text-sm text-foreground truncate">{f.name}</span>
+                        <span className="text-xs text-muted shrink-0">{formatBytes(f.size)}</span>
+                      </div>
+                      <button onClick={(e) => { e.stopPropagation(); removeFile(f.name); }} className="text-muted hover:text-red-400 transition ml-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={handleExtract}
+                disabled={!files.length || extracting}
+                className={`mt-4 w-full py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                  files.length && !extracting
+                    ? "bg-accent text-white hover:bg-accent/90"
+                    : "bg-white/[0.06] text-muted/40 cursor-not-allowed"
+                }`}
+              >
+                {extracting ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="40 20" /></svg>
+                    {extractStatus}
+                  </span>
+                ) : "Extract & Review →"}
+              </button>
+            </div>
+          </div>
+
+          {/* History */}
+          <div className="lg:col-span-4">
+            <div className="bg-card border border-card-border rounded-xl p-5">
+              <h2 className="text-sm font-semibold text-foreground mb-3">Recent Analyses</h2>
+              {analyses.length === 0 ? (
+                <p className="text-sm text-muted/60">No analyses yet</p>
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {analyses.map(a => (
+                    <div
+                      key={a.id}
+                      onClick={() => openAnalysis(a)}
+                      className="px-3 py-2.5 bg-white/[0.02] border border-card-border rounded-lg hover:bg-white/[0.04] cursor-pointer transition"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-foreground font-medium truncate">{a.name}</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[a.status] || "bg-white/10 text-muted"}`}>
+                          {a.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[11px] text-muted">{a.assetClass.replace(/_/g, " ")}</span>
+                        <span className="text-[11px] text-muted/40">·</span>
+                        <span className="text-[11px] text-muted/60">{formatDate(a.createdAt)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── REVIEW VIEW ────────────────────────────────────────────────────────
+
+  if (view === "review") {
+    const currentFields = TAB_FIELDS[activeTab];
+
+    return (
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => { setView("upload"); setCurrentId(null); }}
+            className="text-sm text-muted hover:text-foreground transition flex items-center gap-1"
+          >
+            ← Back
+          </button>
+          <input
+            type="text"
+            value={analysisName}
+            onChange={e => {
+              setAnalysisName(e.target.value);
+              if (currentId) {
+                fetch(`/api/underwrite/${currentId}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ name: e.target.value }),
+                }).catch(() => {});
+              }
+            }}
+            className="text-xl font-bold text-foreground bg-transparent border-b border-transparent hover:border-gray-600 focus:border-accent transition px-1"
+          />
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/15 text-accent font-medium">
+            {assetClass.replace(/_/g, " ")}
+          </span>
+        </div>
+
+        {/* Summary bar */}
+        <div className="bg-card border border-card-border rounded-xl px-5 py-3 flex items-center gap-6 text-xs text-gray-400">
+          <span>📄 {summaryStats.docs} documents</span>
+          <span className="text-gray-600">|</span>
+          <span>✅ {summaryStats.extracted} fields extracted</span>
+          <span className="text-gray-600">|</span>
+          <span className="text-yellow-400">⚠ {summaryStats.needReview} need review</span>
+          <span className="text-gray-600">|</span>
+          <span className="text-red-400">🔴 {summaryStats.notFound} not found</span>
+        </div>
+
+        {/* Tab bar */}
+        <div className="flex gap-1 border-b border-gray-700">
+          {TABS.map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 text-sm transition ${
+                activeTab === tab
+                  ? "text-white border-b-2 border-white font-medium"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        <div className="bg-card border border-card-border rounded-xl p-5">
+          <div className="max-w-2xl">
+            {currentFields.map(field => (
+              <ReviewField
+                key={field.key}
+                field={field}
+                value={inputs[field.key]}
+                meta={fieldMeta[field.key]}
+                onChange={val => updateField(field.key, val)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Conflicts */}
+        <ConflictsSection
+          conflicts={conflicts}
+          inputs={inputs}
+          onResolve={(field, value) => updateField(field, value)}
+        />
+
+        {/* Rent Roll */}
+        {(inputs.tenants || activeTab === "Income") && (
+          <div className="bg-card border border-card-border rounded-xl p-5">
+            <RentRollTable
+              tenants={inputs.tenants || []}
+              onChange={t => {
+                setInputs(prev => ({ ...prev, tenants: t }));
+                debouncedSave();
+              }}
+            />
+          </div>
+        )}
+
+        {/* Generate button */}
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="px-6 py-2.5 rounded-lg text-sm font-semibold bg-accent text-white hover:bg-accent/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {generating ? (
+              <span className="flex items-center gap-2">
+                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="40 20" /></svg>
+                Generating...
+              </span>
+            ) : "Generate Excel Model ↓"}
+          </button>
+          {redCount > 0 && (
+            <span className="text-xs text-red-400">{redCount} fields missing (defaults will be used)</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── COMPLETE VIEW ──────────────────────────────────────────────────────
+
+  return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="bg-card border border-card-border rounded-xl p-8 max-w-md text-center space-y-4">
+        <div className="w-14 h-14 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto">
+          <svg className="w-7 h-7 text-emerald-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <h2 className="text-lg font-bold text-foreground">Model Generated</h2>
+        <p className="text-sm text-muted">{analysisName || "Your acquisition model"} is ready for download.</p>
+        <div className="space-y-2 pt-2">
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="w-full py-2.5 rounded-lg text-sm font-semibold bg-accent text-white hover:bg-accent/90 transition disabled:opacity-50"
+          >
+            {downloading ? "Downloading..." : "Download Excel Model"}
+          </button>
+          <button
+            onClick={() => setView("review")}
+            className="w-full py-2.5 rounded-lg text-sm font-medium text-muted hover:text-foreground bg-white/[0.04] hover:bg-white/[0.06] transition"
+          >
+            Edit Inputs
+          </button>
+          <button
+            onClick={() => { setView("upload"); setCurrentId(null); setInputs({}); setFieldMeta({}); setConflicts([]); setAuditTrail([]); }}
+            className="w-full py-2 text-sm text-muted/60 hover:text-muted transition"
+          >
+            New Analysis
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

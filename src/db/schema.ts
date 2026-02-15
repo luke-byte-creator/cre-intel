@@ -489,6 +489,20 @@ export const pipelineTodos = sqliteTable("pipeline_todos", {
   index("idx_pipeline_todos_sort_order").on(table.sortOrder),
 ]);
 
+// Underwriting Analyses
+export const underwritingAnalyses = sqliteTable("underwriting_analyses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  assetClass: text("asset_class").notNull(),
+  propertyAddress: text("property_address"),
+  status: text("status").notNull().default("draft"),
+  inputs: text("inputs"),
+  documents: text("documents"),
+  excelPath: text("excel_path"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
 // Retail Tenants
 export const retailTenants = sqliteTable("retail_tenants", {
   id: integer("id").primaryKey({ autoIncrement: true }),

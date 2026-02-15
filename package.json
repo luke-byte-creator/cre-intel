@@ -11,6 +11,8 @@
   "dependencies": {
     "better-sqlite3": "^12.6.2",
     "drizzle-orm": "^0.45.1",
+    "exceljs": "^4.4.0",
+    "multer": "^2.0.2",
     "next": "16.1.6",
     "pdf-parse": "^1.1.1",
     "react": "19.2.3",
@@ -20,7 +22,9 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/multer": "^2.0.0",
     "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "drizzle-kit": "^0.31.9",
