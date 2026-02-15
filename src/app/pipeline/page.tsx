@@ -607,9 +607,20 @@ export default function PipelinePage() {
   };
 
   const handleDelete = async (id: number) => {
-    await fetch(`/api/deals/${id}`, { method: "DELETE" });
-    setExpandedId(null);
-    fetchDeals();
+    try {
+      const res = await fetch(`/api/deals/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("Delete failed:", res.status, err);
+        alert(`Failed to delete deal: ${err.error || res.statusText}`);
+        return;
+      }
+      setExpandedId(null);
+      await fetchDeals();
+    } catch (err) {
+      console.error("Delete error:", err);
+      alert("Failed to delete deal");
+    }
   };
 
   const handleUpdateContact = async (dealId: number, field: string, value: string) => {
@@ -787,7 +798,7 @@ export default function PipelinePage() {
 
                           {/* Actions */}
                           <div className="flex gap-2 pt-1">
-                            <button onClick={() => handleDelete(deal.id)} className="px-2 py-1 text-[10px] text-red-400 hover:text-red-300">Delete Deal</button>
+                            <button onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${deal.tenantName}"? This cannot be undone.`)) handleDelete(deal.id); }} className="px-2 py-1 text-[10px] text-red-400 hover:text-red-300">Delete Deal</button>
                           </div>
                         </div>
                       )}

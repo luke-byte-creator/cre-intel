@@ -54,7 +54,7 @@ const SEARCH_TABS: { value: SearchTab; label: string }[] = [
 function Leaderboard({ entries }: { entries: LeaderboardEntry[] }) {
   return (
     <div>
-      <h2 className="text-lg font-semibold text-white mb-3">🏆 Weekly Leaderboard</h2>
+      <h2 className="text-lg font-semibold text-white mb-3">🏆 Weekly Contributions</h2>
       <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl overflow-hidden">
         {entries.length > 0 ? (
           <div className="divide-y divide-zinc-700/50">

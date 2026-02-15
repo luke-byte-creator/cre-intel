@@ -45,6 +45,7 @@ export interface DealEconomicsData {
     sf: string;
     baseRent: string;
     term: string;
+    startDate: string;
     freeRent: string;
     ti: string;
     commRate: string;
@@ -74,6 +75,7 @@ export default function DealCalculator({ initialData, onSave, onRemove, compact 
   const [sf, setSf] = useState(initialData?.inputs.sf || "5000");
   const [baseRent, setBaseRent] = useState(initialData?.inputs.baseRent || "20");
   const [term, setTerm] = useState(initialData?.inputs.term || "60");
+  const [startDate, setStartDate] = useState(initialData?.inputs.startDate || "");
   const [freeRent, setFreeRent] = useState(initialData?.inputs.freeRent || "3");
   const [ti, setTi] = useState(initialData?.inputs.ti || "15");
   const [commRate, setCommRate] = useState(initialData?.inputs.commRate || "5");
@@ -86,6 +88,7 @@ export default function DealCalculator({ initialData, onSave, onRemove, compact 
       setSf(initialData.inputs.sf);
       setBaseRent(initialData.inputs.baseRent);
       setTerm(initialData.inputs.term);
+      setStartDate(initialData.inputs.startDate || "");
       setFreeRent(initialData.inputs.freeRent);
       setTi(initialData.inputs.ti);
       setCommRate(initialData.inputs.commRate);
@@ -174,7 +177,7 @@ export default function DealCalculator({ initialData, onSave, onRemove, compact 
   const handleSave = () => {
     if (!calc || !onSave) return;
     onSave({
-      inputs: { sf, baseRent, term, freeRent, ti, commRate, otherExpense, rentSteps },
+      inputs: { sf, baseRent, term, startDate, freeRent, ti, commRate, otherExpense, rentSteps },
       results: {
         totalRent: calc.totalRent,
         totalConcessions: calc.totalConcessions,
@@ -236,6 +239,15 @@ export default function DealCalculator({ initialData, onSave, onRemove, compact 
           </div>
 
           <InputField label="Lease Term" value={term} onChange={setTerm} suffix="months" />
+          <div>
+            <label className="text-xs text-zinc-400 block mb-1">Start Date</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-zinc-500 transition [color-scheme:dark]"
+            />
+          </div>
           <InputField label="Free Rent" value={freeRent} onChange={setFreeRent} suffix="months" />
           <InputField label="TI Allowance" value={ti} onChange={setTi} suffix="$/SF" />
           <InputField label="Commission Rate" value={commRate} onChange={setCommRate} suffix="%" />

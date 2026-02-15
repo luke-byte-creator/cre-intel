@@ -16,6 +16,7 @@ interface Inquiry {
   notes: string | null;
   source: string | null;
   submittedBy: string | null;
+  assetTypePreference: string | null;
   status: string | null;
   createdAt: string;
 }
@@ -27,12 +28,10 @@ const STATUS_COLORS: Record<string, string> = {
   not_a_fit: "#6b7280",
 };
 
-const TABS = ["All", "New", "Contacted", "Pipeline", "Not a Fit"];
+const TABS = ["All", "New", "Not a Fit"];
 const tabToStatus: Record<string, string | null> = {
   All: null,
   New: "new",
-  Contacted: "contacted",
-  Pipeline: "pipeline",
   "Not a Fit": "not_a_fit",
 };
 
@@ -51,7 +50,7 @@ const EMPTY_FORM = {
 export default function InquiriesPage() {
   const router = useRouter();
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
-  const [tab, setTab] = useState("All");
+  const [tab, setTab] = useState("New");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
   const [editNotes, setEditNotes] = useState<Record<number, string>>({});
@@ -62,16 +61,23 @@ export default function InquiriesPage() {
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addMode, setAddMode] = useState<"paste" | "manual">("paste");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [assetTypeFilter, setAssetTypeFilter] = useState("");
+  const [sfMin, setSfMin] = useState("");
+  const [sfMax, setSfMax] = useState("");
 
   const load = () => {
     const params = new URLSearchParams();
     const s = tabToStatus[tab];
     if (s) params.set("status", s);
     if (search) params.set("search", search);
+    if (assetTypeFilter) params.set("assetType", assetTypeFilter);
+    if (sfMin) params.set("sfMin", sfMin);
+    if (sfMax) params.set("sfMax", sfMax);
     fetch(`/api/inquiries?${params}`).then(r => r.json()).then(setInquiries);
   };
 
-  useEffect(() => { load(); }, [tab, search]);
+  useEffect(() => { load(); }, [tab, search, assetTypeFilter, sfMin, sfMax]);
 
   const updateStatus = async (id: number, status: string) => {
     await fetch(`/api/inquiries/${id}`, {
@@ -319,8 +325,65 @@ export default function InquiriesPage() {
         placeholder="Search by name, company, property, business..."
         value={search}
         onChange={e => setSearch(e.target.value)}
-        className="w-full bg-card border border-card-border rounded-lg px-4 py-2.5 text-sm text-foreground placeholder:text-muted mb-4 focus:outline-none focus:border-accent/50"
+        className="w-full bg-card border border-card-border rounded-lg px-4 py-2.5 text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-accent/50"
       />
+      <div className="mb-4">
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="text-xs text-muted hover:text-accent transition-colors mt-1.5 flex items-center gap-1"
+        >
+          <span className={`transition-transform ${showAdvanced ? "rotate-90" : ""}`}>▸</span>
+          Advanced Search
+        </button>
+        {showAdvanced && (
+          <div className="mt-2 flex flex-wrap gap-3 items-end">
+            <div>
+              <label className="block text-xs text-muted mb-1">Asset Type</label>
+              <select
+                value={assetTypeFilter}
+                onChange={e => setAssetTypeFilter(e.target.value)}
+                className="bg-card border border-card-border rounded-lg px-3 py-1.5 text-sm text-foreground focus:outline-none focus:border-accent/50"
+              >
+                <option value="">All Types</option>
+                <option value="office">Office</option>
+                <option value="retail">Retail</option>
+                <option value="industrial">Industrial</option>
+                <option value="land">Land</option>
+                <option value="multifamily">Multifamily</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-muted mb-1">Min SF</label>
+              <input
+                type="number"
+                value={sfMin}
+                onChange={e => setSfMin(e.target.value)}
+                placeholder="e.g. 800"
+                className="w-28 bg-card border border-card-border rounded-lg px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-accent/50"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-muted mb-1">Max SF</label>
+              <input
+                type="number"
+                value={sfMax}
+                onChange={e => setSfMax(e.target.value)}
+                placeholder="e.g. 2000"
+                className="w-28 bg-card border border-card-border rounded-lg px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-accent/50"
+              />
+            </div>
+            {(assetTypeFilter || sfMin || sfMax) && (
+              <button
+                onClick={() => { setAssetTypeFilter(""); setSfMin(""); setSfMax(""); }}
+                className="text-xs text-muted hover:text-red-400 transition-colors py-1.5"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* List */}
       <div className="space-y-2">
@@ -339,6 +402,7 @@ export default function InquiriesPage() {
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                    {inq.assetTypePreference && <span className="text-accent/70 capitalize">{inq.assetTypePreference}</span>}
                     {inq.propertyOfInterest && <span className="text-accent/70">→ {inq.propertyOfInterest}</span>}
                     {inq.businessDescription && <span>{inq.businessDescription}</span>}
                     {inq.spaceNeedsSf && <span>{inq.spaceNeedsSf}</span>}

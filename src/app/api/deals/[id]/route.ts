@@ -39,7 +39,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const auth = await requireAuth(req);
   if (auth instanceof Response) return auth;
   const { id } = await params;
-  const result = await db.delete(schema.deals).where(eq(schema.deals.id, Number(id))).returning();
+  const dealId = Number(id);
+  // Delete related records first (FK constraints)
+  await db.delete(schema.pipelineTodos).where(eq(schema.pipelineTodos.dealId, dealId));
+  await db.delete(schema.tours).where(eq(schema.tours.dealId, dealId));
+  const result = await db.delete(schema.deals).where(eq(schema.deals.id, dealId)).returning();
   if (!result.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ success: true });
 }

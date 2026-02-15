@@ -5,12 +5,15 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import NovaLogo from "@/components/NovaLogo";
 
-const intelNav = [
+const dashboardNav = [
   { href: "/", label: "Dashboard", icon: (
     <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
     </svg>
   )},
+];
+
+const prospectingExtra = [
   { href: "/inquiries", label: "Inquiries", icon: (
     <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661z" />
@@ -19,6 +22,9 @@ const intelNav = [
   { href: "/pipeline", label: "Pipeline", icon: (
     <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" /></svg>
   )},
+];
+
+const intelNav = [
   { href: "/transactions", label: "Transactions", icon: (
     <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -29,6 +35,9 @@ const intelNav = [
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
     </svg>
   )},
+];
+
+const toolsNav = [
   { href: "/underwrite", label: "Underwriter", icon: (
     <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008zm0 2.25h.008v.008H8.25V13.5zm0 2.25h.008v.008H8.25v-.008zm0 2.25h.008v.008H8.25V18zm2.498-6.75h.007v.008h-.007v-.008zm0 2.25h.007v.008h-.007V13.5zm0 2.25h.007v.008h-.007v-.008zm0 2.25h.007v.008h-.007V18zm2.504-6.75h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V13.5zm0 2.25h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V18zm2.498-6.75h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V13.5zM8.25 6h7.5v2.25h-7.5V6zM12 2.25c-1.892 0-3.758.11-5.593.322C5.307 2.7 4.5 3.65 4.5 4.757V19.5a2.25 2.25 0 002.25 2.25h10.5a2.25 2.25 0 002.25-2.25V4.757c0-1.108-.806-2.057-1.907-2.185A48.507 48.507 0 0012 2.25z" />
@@ -139,10 +148,28 @@ export default function Sidebar() {
         </div>
 
         <nav className="flex-1 py-3 px-3 space-y-4 overflow-y-auto">
+          {/* Dashboard */}
+          <div className="space-y-0.5">
+            {dashboardNav.map((item) => {
+              const active = isActive(item.href);
+              return (
+                <Link key={item.href} href={item.href} onClick={() => setOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    active ? "bg-accent/12 text-accent shadow-sm" : "text-muted hover:text-foreground hover:bg-white/[0.04]"
+                  }`}
+                >
+                  <span className={active ? "text-accent" : "text-muted"}>{item.icon}</span>
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* Prospecting */}
           <div>
             <p className="px-3 mb-1.5 text-[10px] uppercase tracking-widest text-muted/60 font-semibold">Prospecting</p>
             <div className="space-y-0.5">
-              {inventoryNav.map((item) => {
+              {prospectingExtra.map((item) => {
                 const active = isActive(item.href);
                 return (
                   <Link key={item.href} href={item.href} onClick={() => setOpen(false)}
@@ -157,10 +184,32 @@ export default function Sidebar() {
               })}
             </div>
           </div>
+
+          {/* Intel */}
           <div>
             <p className="px-3 mb-1.5 text-[10px] uppercase tracking-widest text-muted/60 font-semibold">Intel</p>
             <div className="space-y-0.5">
-              {intelNav.map((item) => {
+              {[...inventoryNav, ...intelNav].map((item) => {
+                const active = isActive(item.href);
+                return (
+                  <Link key={item.href} href={item.href} onClick={() => setOpen(false)}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                      active ? "bg-accent/12 text-accent shadow-sm" : "text-muted hover:text-foreground hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <span className={active ? "text-accent" : "text-muted"}>{item.icon}</span>
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Tools */}
+          <div>
+            <p className="px-3 mb-1.5 text-[10px] uppercase tracking-widest text-muted/60 font-semibold">Tools</p>
+            <div className="space-y-0.5">
+              {toolsNav.map((item) => {
                 const active = isActive(item.href);
                 return (
                   <Link key={item.href} href={item.href} onClick={() => setOpen(false)}

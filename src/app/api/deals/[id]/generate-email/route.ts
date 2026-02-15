@@ -45,13 +45,42 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const comments = parseComments(deal.notes);
   const recentNotes = comments.slice(-3).map(c => c.text).join("\n- ") || "None";
 
+  // Parse deal economics if available
+  let economicsContext = "";
+  if (deal.dealEconomics) {
+    try {
+      const econ = JSON.parse(deal.dealEconomics as string);
+      const inp = econ.inputs || {};
+      const res = econ.results || {};
+      const parts: string[] = [];
+      if (inp.sf) parts.push(`Size: ${inp.sf} SF`);
+      if (inp.startDate) parts.push(`Start Date: ${inp.startDate}`);
+      if (inp.baseRent) parts.push(`Base Rent: $${inp.baseRent}/SF/year`);
+      if (inp.term) parts.push(`Term: ${inp.term} months`);
+      if (inp.freeRent && Number(inp.freeRent) > 0) parts.push(`Free Rent: ${inp.freeRent} months`);
+      if (inp.ti && Number(inp.ti) > 0) parts.push(`TI Allowance: $${inp.ti}/SF`);
+      if (inp.otherExpense && Number(inp.otherExpense) > 0) parts.push(`Other Expenses: $${inp.otherExpense}/SF`);
+      if (inp.rentSteps?.length) {
+        const steps = inp.rentSteps.map((s: { month: string; rent: string }) => `Month ${s.month}: $${s.rent}/SF`).join(", ");
+        parts.push(`Rent Steps: ${steps}`);
+      }
+      if (res.totalRent) parts.push(`Total Rent: $${res.totalRent.toLocaleString()}`);
+      if (res.nerYear) parts.push(`Net Effective Rent: $${res.nerYear.toFixed(2)}/SF/year`);
+      if (parts.length) {
+        economicsContext = `\n\nDeal Economics (use these numbers if relevant to the email — do NOT make up numbers):\n- ${parts.join("\n- ")}`;
+      }
+    } catch {}
+  }
+
   const prompt = `You are writing a professional email for a commercial real estate agent.
 
 Context about this deal:
 - Tenant/Company: ${deal.tenantName}${deal.tenantCompany ? ` (${deal.tenantCompany})` : ""}
 - Property: ${deal.propertyAddress}
 - Recent notes:
-- ${recentNotes}
+- ${recentNotes}${economicsContext}
+
+IMPORTANT: Only reference deal terms/numbers that are provided above. NEVER invent or hallucinate numbers, rates, dates, or terms that aren't in the context.
 
 The agent's instructions for this email:
 ${body.instructions}

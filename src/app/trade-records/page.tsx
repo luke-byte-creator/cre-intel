@@ -384,13 +384,34 @@ export default function TradeRecordsPage() {
 
 // ─── Field Input Helper ────────────────────────────────────────────────────
 
-function Field({ label, value, onChange, className }: { label: string; value: string | number | undefined | null; onChange: (v: string) => void; className?: string }) {
+// Safe numeric conversion — returns null instead of NaN
+function safeNum(v: string): number | null {
+  if (!v || v.trim() === "") return null;
+  const n = Number(v.replace(/[,$\s]/g, ""));
+  return isNaN(n) ? null : n;
+}
+
+function Field({ label, value, onChange, numeric, className }: { label: string; value: string | number | undefined | null; onChange: (v: string) => void; numeric?: boolean; className?: string }) {
+  const [localVal, setLocalVal] = useState<string | null>(null);
+  const displayValue = localVal !== null ? localVal : (value !== null && value !== undefined && !Number.isNaN(value) ? String(value) : "");
   return (
     <div className={className}>
       <label className="block text-xs text-muted mb-1">{label}</label>
       <input
-        value={value ?? ""}
-        onChange={e => onChange(e.target.value)}
+        value={displayValue}
+        onChange={e => {
+          if (numeric) {
+            setLocalVal(e.target.value);
+          } else {
+            onChange(e.target.value);
+          }
+        }}
+        onBlur={() => {
+          if (numeric && localVal !== null) {
+            onChange(localVal);
+            setLocalVal(null);
+          }
+        }}
         className="w-full px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-foreground text-sm focus:outline-none focus:border-gray-500"
       />
     </div>
@@ -436,12 +457,12 @@ function LeaseReviewForm({ data, updateField }: { data: any; updateField: (path:
       <div className="bg-card border border-card-border rounded-xl p-5 space-y-4">
         <SectionHeader title="Term" />
         <div className="grid grid-cols-6 gap-3">
-          <Field label="Start Day" value={data.termStart?.day} onChange={v => updateField("termStart.day", Number(v))} />
+          <Field label="Start Day" value={data.termStart?.day} onChange={v => updateField("termStart.day", safeNum(v))} numeric />
           <Field label="Start Month" value={data.termStart?.month} onChange={v => updateField("termStart.month", v)} />
-          <Field label="Start Year" value={data.termStart?.year} onChange={v => updateField("termStart.year", Number(v))} />
-          <Field label="End Day" value={data.termEnd?.day} onChange={v => updateField("termEnd.day", Number(v))} />
+          <Field label="Start Year" value={data.termStart?.year} onChange={v => updateField("termStart.year", safeNum(v))} numeric />
+          <Field label="End Day" value={data.termEnd?.day} onChange={v => updateField("termEnd.day", safeNum(v))} numeric />
           <Field label="End Month" value={data.termEnd?.month} onChange={v => updateField("termEnd.month", v)} />
-          <Field label="End Year" value={data.termEnd?.year} onChange={v => updateField("termEnd.year", Number(v))} />
+          <Field label="End Year" value={data.termEnd?.year} onChange={v => updateField("termEnd.year", safeNum(v))} numeric />
         </div>
         <div className="grid grid-cols-3 gap-3">
           <SelectField label="Renewal Option" value={data.renewalOption ? "Yes" : "No"} options={["Yes", "No"]} onChange={v => updateField("renewalOption", v === "Yes")} />
@@ -497,57 +518,142 @@ function LeaseReviewForm({ data, updateField }: { data: any; updateField: (path:
       <div className="bg-card border border-card-border rounded-xl p-5 space-y-4">
         <SectionHeader title="Deal Details" />
         <div className="grid grid-cols-5 gap-3">
-          <Field label="Total SF" value={data.totalSF} onChange={v => updateField("totalSF", Number(v))} />
-          <Field label="Base Annual Rent PSF" value={data.baseAnnualRentPSF} onChange={v => updateField("baseAnnualRentPSF", Number(v))} />
-          <Field label="Months Free Rent" value={data.monthsFreeRent} onChange={v => updateField("monthsFreeRent", Number(v))} />
-          <Field label="TI PSF" value={data.tenantInducementPSF} onChange={v => updateField("tenantInducementPSF", Number(v))} />
-          <Field label="Taxes & OpCosts PSF" value={data.taxesOperatingCostsPSF} onChange={v => updateField("taxesOperatingCostsPSF", Number(v))} />
+          <Field label="Total SF" value={data.totalSF} onChange={v => updateField("totalSF", safeNum(v))} numeric />
+          <Field label="Base Annual Rent PSF" value={data.baseAnnualRentPSF} onChange={v => updateField("baseAnnualRentPSF", safeNum(v))} numeric />
+          <Field label="Months Free Rent" value={data.monthsFreeRent} onChange={v => updateField("monthsFreeRent", safeNum(v))} numeric />
+          <Field label="TI PSF" value={data.tenantInducementPSF} onChange={v => updateField("tenantInducementPSF", safeNum(v))} numeric />
+          <Field label="Taxes & OpCosts PSF" value={data.taxesOperatingCostsPSF} onChange={v => updateField("taxesOperatingCostsPSF", safeNum(v))} numeric />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <SelectField label="Engaged By" value={data.engagedBy} options={["Landlord", "Tenant"]} onChange={v => updateField("engagedBy", v)} />
           <SelectField label="Paid By" value={data.paidBy} options={["Landlord", "Tenant"]} onChange={v => updateField("paidBy", v)} />
         </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Deposit Amount" value={data.depositsHeld} onChange={v => updateField("depositsHeld", safeNum(v))} numeric />
+          <Field label="Deposit Held By" value={data.depositHeldBy} onChange={v => updateField("depositHeldBy", v)} />
+          <SelectField label="Interest Bearing?" value={data.depositInterestBearing ? "Yes" : "No"} options={["Yes", "No"]} onChange={v => updateField("depositInterestBearing", v === "Yes")} />
+        </div>
         <div className="mt-3">
-          <label className="text-xs text-muted mb-1 block">Commission Lines (SF × Rate PSF × Term Years × Commission %)</label>
-          <table className="w-full text-sm border border-card-border">
-            <thead><tr className="bg-card-border/30">
-              <th className="px-2 py-1 text-left">Rate PSF</th>
-              <th className="px-2 py-1 text-left">Term (yrs)</th>
-              <th className="px-2 py-1 text-left">Commission %</th>
-              <th className="px-2 py-1 w-8"></th>
-            </tr></thead>
-            <tbody>
-              {(data.commissionLines || []).map((line: { ratePSF: number; termYears: number; commissionRate: number }, idx: number) => (
-                <tr key={idx} className="border-t border-card-border">
-                  <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.ratePSF ?? ""} onChange={e => {
-                    const lines = [...(data.commissionLines || [])];
-                    lines[idx] = { ...lines[idx], ratePSF: Number(e.target.value) };
-                    updateField("commissionLines", lines);
-                  }} /></td>
-                  <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="1" value={line.termYears ?? ""} onChange={e => {
-                    const lines = [...(data.commissionLines || [])];
-                    lines[idx] = { ...lines[idx], termYears: Number(e.target.value) };
-                    updateField("commissionLines", lines);
-                  }} /></td>
-                  <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.commissionRate ?? ""} onChange={e => {
-                    const lines = [...(data.commissionLines || [])];
-                    lines[idx] = { ...lines[idx], commissionRate: Number(e.target.value) };
-                    updateField("commissionLines", lines);
-                  }} /></td>
-                  <td className="px-1 py-1 text-center"><button className="text-red-400 hover:text-red-300" onClick={() => {
-                    const lines = [...(data.commissionLines || [])];
-                    lines.splice(idx, 1);
-                    updateField("commissionLines", lines);
-                  }}>×</button></td>
-                </tr>
+          <div className="flex items-center gap-3 mb-2">
+            <label className="text-xs text-muted">Commission Type:</label>
+            <div className="flex gap-1">
+              {(["percentage", "dollarPSF", "setFee"] as const).map(t => (
+                <button key={t} onClick={() => updateField("leaseCommissionType", t)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition ${
+                    (data.leaseCommissionType || "percentage") === t ? "bg-accent text-white" : "bg-gray-800 text-muted hover:text-foreground"
+                  }`}>
+                  {t === "percentage" ? "% of Deal" : t === "dollarPSF" ? "$/SF" : "Set Fee"}
+                </button>
               ))}
-            </tbody>
-          </table>
-          <button className="mt-1 text-xs text-blue-400 hover:text-blue-300" onClick={() => {
-            const lines = [...(data.commissionLines || [])];
-            lines.push({ ratePSF: data.baseAnnualRentPSF || 0, termYears: 5, commissionRate: lines.length === 0 ? 0.05 : 0.02 });
-            updateField("commissionLines", lines);
-          }}>+ Add Commission Line</button>
+            </div>
+          </div>
+
+          {(data.leaseCommissionType || "percentage") === "percentage" && (<>
+            <label className="text-xs text-muted mb-1 block">Commission Lines (SF × Rate PSF × Term Years × Commission %)</label>
+            <table className="w-full text-sm border border-card-border">
+              <thead><tr className="bg-card-border/30">
+                <th className="px-2 py-1 text-left">Rate PSF</th>
+                <th className="px-2 py-1 text-left">Term (yrs)</th>
+                <th className="px-2 py-1 text-left">Commission %</th>
+                <th className="px-2 py-1 w-8"></th>
+              </tr></thead>
+              <tbody>
+                {(data.commissionLines || []).map((line: { ratePSF: number; termYears: number; commissionRate: number }, idx: number) => (
+                  <tr key={idx} className="border-t border-card-border">
+                    <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.ratePSF ?? ""} onChange={e => {
+                      const lines = [...(data.commissionLines || [])];
+                      lines[idx] = { ...lines[idx], ratePSF: Number(e.target.value) || 0 };
+                      updateField("commissionLines", lines);
+                    }} /></td>
+                    <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.termYears ?? ""} onChange={e => {
+                      const lines = [...(data.commissionLines || [])];
+                      lines[idx] = { ...lines[idx], termYears: Number(e.target.value) || 0 };
+                      updateField("commissionLines", lines);
+                    }} /></td>
+                    <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.commissionRate ?? ""} onChange={e => {
+                      const lines = [...(data.commissionLines || [])];
+                      lines[idx] = { ...lines[idx], commissionRate: Number(e.target.value) || 0 };
+                      updateField("commissionLines", lines);
+                    }} /></td>
+                    <td className="px-1 py-1 text-center"><button className="text-red-400 hover:text-red-300" onClick={() => {
+                      const lines = [...(data.commissionLines || [])];
+                      lines.splice(idx, 1);
+                      updateField("commissionLines", lines);
+                    }}>×</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button className="mt-1 text-xs text-blue-400 hover:text-blue-300" onClick={() => {
+              const lines = [...(data.commissionLines || [])];
+              lines.push({ ratePSF: data.baseAnnualRentPSF || 0, termYears: 5, commissionRate: lines.length === 0 ? 0.05 : 0.02 });
+              updateField("commissionLines", lines);
+            }}>+ Add Commission Line</button>
+          </>)}
+
+          {(data.leaseCommissionType) === "dollarPSF" && (
+            <div>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <Field label="Total SF" value={data.totalSF} onChange={v => updateField("totalSF", safeNum(v))} numeric />
+              </div>
+              <label className="text-xs text-muted mb-1 block">Commission Rows (SF × $/SF/Year × Term)</label>
+              <table className="w-full text-sm mb-2">
+                <thead><tr className="text-xs text-muted">
+                  <th className="px-2 py-1 text-left">$/SF/Year</th>
+                  <th className="px-2 py-1 text-left">Term (years)</th>
+                  <th className="px-2 py-1 text-left">Subtotal</th>
+                  <th className="px-2 py-1 w-8"></th>
+                </tr></thead>
+                <tbody>
+                  {(data.dollarPSFLines || [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }]).map((line: { ratePSF: number; termYears: number }, idx: number) => (
+                    <tr key={idx}>
+                      <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.ratePSF ?? ""} onChange={e => {
+                        const lines = [...(data.dollarPSFLines || [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }])];
+                        lines[idx] = { ...lines[idx], ratePSF: Number(e.target.value) || 0 };
+                        updateField("dollarPSFLines", lines);
+                      }} /></td>
+                      <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.1" value={line.termYears ?? ""} onChange={e => {
+                        const lines = [...(data.dollarPSFLines || [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }])];
+                        lines[idx] = { ...lines[idx], termYears: Number(e.target.value) || 0 };
+                        updateField("dollarPSFLines", lines);
+                      }} /></td>
+                      <td className="px-1 py-1 text-muted">${((data.totalSF || 0) * (line.ratePSF || 0) * (line.termYears || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="px-1 py-1">
+                        {(data.dollarPSFLines || []).length > 1 && (
+                          <button onClick={() => {
+                            const lines = [...(data.dollarPSFLines || [])];
+                            lines.splice(idx, 1);
+                            updateField("dollarPSFLines", lines);
+                          }} className="text-red-400 hover:text-red-300 text-xs">✕</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <button onClick={() => {
+                const lines = [...(data.dollarPSFLines || [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }])];
+                lines.push({ ratePSF: 0.50, termYears: 5 });
+                updateField("dollarPSFLines", lines);
+              }} className="text-xs text-blue-400 hover:text-blue-300 mb-2">+ Add Row</button>
+              <div className="text-sm text-muted font-medium">
+                Total: ${((data.dollarPSFLines || [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }])
+                  .reduce((sum: number, line: { ratePSF: number; termYears: number }) => sum + (data.totalSF || 0) * (line.ratePSF || 0) * (line.termYears || 0), 0))
+                  .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          )}
+
+          {(data.leaseCommissionType) === "setFee" && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Set Fee Amount ($)" value={data.leaseCommissionSetFee} onChange={v => updateField("leaseCommissionSetFee", safeNum(v))} numeric />
+              <div className="flex items-end pb-1">
+                <span className="text-sm text-muted">
+                  {data.leaseCommissionSetFee ? `= $${Number(data.leaseCommissionSetFee).toLocaleString()}` : ""}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -645,10 +751,10 @@ function SaleReviewForm({ data, updateField }: { data: any; updateField: (path: 
         </div>
         <div className="grid grid-cols-5 gap-3">
           <SelectField label="Property Type" value={data.propertyType} options={["Retail", "Land", "Office", "Multi Housing", "Industrial", "Special Use", "Residential"]} onChange={v => updateField("propertyType", v)} />
-          <Field label="Parcel Size (AC)" value={data.parcelSizeAcres} onChange={v => updateField("parcelSizeAcres", Number(v))} />
-          <Field label="Building SF" value={data.buildingSF} onChange={v => updateField("buildingSF", Number(v))} />
-          <Field label="# Units" value={data.numberOfUnits} onChange={v => updateField("numberOfUnits", Number(v))} />
-          <Field label="# Buildings" value={data.numberOfBuildings} onChange={v => updateField("numberOfBuildings", Number(v))} />
+          <Field label="Parcel Size (AC)" value={data.parcelSizeAcres} onChange={v => updateField("parcelSizeAcres", safeNum(v))} numeric />
+          <Field label="Building SF" value={data.buildingSF} onChange={v => updateField("buildingSF", safeNum(v))} numeric />
+          <Field label="# Units" value={data.numberOfUnits} onChange={v => updateField("numberOfUnits", safeNum(v))} numeric />
+          <Field label="# Buildings" value={data.numberOfBuildings} onChange={v => updateField("numberOfBuildings", safeNum(v))} numeric />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <SelectField label="Portfolio" value={data.portfolio ? "Yes" : "No"} options={["Yes", "No"]} onChange={v => updateField("portfolio", v === "Yes")} />
@@ -657,15 +763,27 @@ function SaleReviewForm({ data, updateField }: { data: any; updateField: (path: 
       </div>
 
       <div className="bg-card border border-card-border rounded-xl p-5 space-y-4">
-        <SectionHeader title="Financial" />
+        <SectionHeader title="Financial & Commission" />
         <div className="grid grid-cols-4 gap-3">
-          <Field label="Purchase Price" value={data.purchasePrice} onChange={v => updateField("purchasePrice", Number(v))} />
-          <SelectField label="Commission Type" value={data.commissionType} options={["percentage", "setFee"]} onChange={v => updateField("commissionType", v)} />
-          <Field label="Commission %" value={data.commissionPercentage} onChange={v => updateField("commissionPercentage", Number(v))} />
-          <Field label="Set Fee Amount" value={data.commissionSetFee} onChange={v => updateField("commissionSetFee", Number(v))} />
+          <Field label="Purchase Price ($)" value={data.purchasePrice} onChange={v => updateField("purchasePrice", safeNum(v))} numeric />
+          <SelectField label="Commission Type" value={data.commissionType || "percentage"} options={["percentage", "setFee"]} onChange={v => updateField("commissionType", v)} />
+          {(data.commissionType || "percentage") === "percentage" ? (
+            <Field label="Commission % (decimal, e.g. 0.05)" value={data.commissionPercentage} onChange={v => updateField("commissionPercentage", safeNum(v))} numeric />
+          ) : (
+            <Field label="Set Fee Amount ($)" value={data.commissionSetFee} onChange={v => updateField("commissionSetFee", safeNum(v))} numeric />
+          )}
+          <div className="flex items-end pb-1">
+            <span className="text-xs text-muted">
+              {data.purchasePrice && data.commissionPercentage && (data.commissionType || "percentage") === "percentage"
+                ? `= $${((data.purchasePrice || 0) * (data.commissionPercentage || 0)).toLocaleString()}`
+                : data.commissionSetFee && data.commissionType === "setFee"
+                ? `= $${Number(data.commissionSetFee).toLocaleString()}`
+                : ""}
+            </span>
+          </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Deposit Amount" value={data.depositAmount} onChange={v => updateField("depositAmount", Number(v))} />
+          <Field label="Deposit Amount" value={data.depositAmount} onChange={v => updateField("depositAmount", safeNum(v))} numeric />
           <Field label="Deposit Held By" value={data.depositHeldBy} onChange={v => updateField("depositHeldBy", v)} />
           <SelectField label="Interest Bearing" value={data.interestBearing ? "Yes" : "No"} options={["Yes", "No"]} onChange={v => updateField("interestBearing", v === "Yes")} />
         </div>

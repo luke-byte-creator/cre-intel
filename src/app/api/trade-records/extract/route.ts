@@ -94,12 +94,17 @@ Extract ALL of the following fields. Return ONLY valid JSON matching the structu
   ],
   "commissionRate": number (e.g. 0.05 for 5%),
   "engagedBy": "Landlord" or "Tenant",
-  "paidBy": "Landlord" or "Tenant"
+  "paidBy": "Landlord" or "Tenant",
+  "depositsHeld": number or null (security deposit / damage deposit amount),
+  "depositHeldBy": "Landlord" or "CBRE" or other (who holds the deposit),
+  "depositInterestBearing": true or false
 }
 
 Occupier Industry must be one of: ${OCCUPIER_INDUSTRIES.join(", ")}
 
 For lease schedule, include ALL rent step periods including any free rent periods (rentPSF: 0).
+For monthsFreeRent: count any periods where rent is $0 or explicitly waived (fixturing period, free rent, rent abatement). Look for this in the lease schedule, rent table, or amendments.
+For tenantInducementPSF: look for tenant improvement allowance, TI allowance, leasehold improvement allowance, or similar concessions. Calculate PSF if given as lump sum.
 ${textOrVision ? "Extract from the document images provided." : "Extract from the document text provided."}`;
 }
 
@@ -128,7 +133,7 @@ Extract ALL of the following fields. Return ONLY valid JSON. Use null for any fi
   "numberOfBuildings": number or null,
   "portfolio": false,
   "cbreListing": false,
-  "listingType": "Open" or "Exclusive" or "MLS" or "Off Market" or null,
+  "listingType": "Open" or "Exclusive" or "MLS" or "Off Market" or null (ONLY set if explicitly stated in the document — do not guess or infer),
   "vendorSolicitor": {
     "name": "", "contactName": "", "phone": "",
     "address": "", "suite": "", "city": "", "province": "", "postalCode": ""
@@ -148,13 +153,15 @@ Extract ALL of the following fields. Return ONLY valid JSON. Use null for any fi
   "interestBearing": false,
   "occupierIndustry": "",
   "invoiceRecipient": "Vendor" or "Vendor's Lawyer" or "Purchaser" or "Purchaser's Lawyer" or "Outside Broker",
-  "assetPropertyManager": "",
-  "beneficialOwner": "",
+  "assetPropertyManager": "property management company name or null",
+  "beneficialOwner": "the underlying beneficial owner of the property if different from the vendor/seller entity — NOT the purchaser. Leave null if not mentioned or same as vendor",
   "engagedBy": "Buyer" or "Vendor",
   "paidBy": "Buyer" or "Vendor"
 }
 
 Occupier Industry must be one of: ${OCCUPIER_INDUSTRIES.join(", ")}
+
+IMPORTANT: Only extract what is explicitly stated in the document. Use null for any field not clearly present. Do NOT guess or infer listing type, FINTRAC representation, engaged by, paid by, or beneficial owner — these are internal brokerage fields that typically won't appear in purchase agreements.
 ${textOrVision ? "Extract from the document images provided." : "Extract from the document text provided."}`;
 }
 

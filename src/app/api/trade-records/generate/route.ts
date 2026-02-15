@@ -115,6 +115,20 @@ async function generateLeaseFromTemplate(data: any, commission: any): Promise<Bu
   set("D22", data.property?.province || "");
   set("F22", data.property?.postalCode || "");
 
+  // Row 7-8: Engaged By / Paid By checkmarks (X under LANDLORD or TENANT columns)
+  // Row 6 headers: H-I = LANDLORD, J-K = TENANT
+  // Row 7 = ENGAGED BY, Row 8 = PAID BY
+  if (data.engagedBy === "Landlord") {
+    set("H7", "X");
+  } else if (data.engagedBy === "Tenant") {
+    set("J7", "X");
+  }
+  if (data.paidBy === "Landlord") {
+    set("H8", "X");
+  } else if (data.paidBy === "Tenant") {
+    set("J8", "X");
+  }
+
   // Row 23: CBRE Listing + Deal details
   set("C23", data.cbreListing ? "YES:  ✓" : "YES:");
   set("E23", !data.cbreListing ? "NO:  ✓" : "NO:");
@@ -154,52 +168,86 @@ async function generateLeaseFromTemplate(data: any, commission: any): Promise<Bu
   set("I38", data.previousProperty || "");
 
   // === COMMISSION CALCULATION (rows 42-47) ===
-  // The template has rows 42-47 for up to 6 commission lines
-  // Each row: A=SF (=$I$23), C=@, D=Rate PSF, F=@, G=Term (years), H=Total formula, I=Commission %, J=Commission formula
+  // Template: A=SF (=$I$23), C=@, D=Rate PSF, F=@, G=Term (years), H=Total, I=Commission %, J=Commission amount
+  // Row 48: J48 = SUM(J42:K47) total billing, F51 = J48/2 branch total
   
+  const leaseCommType = data.leaseCommissionType || "percentage";
   const schedule = data.leaseSchedule || [];
-  const commissionLines = data.commissionLines || [];
-  
-  // If commission lines provided from the review form, use those
-  // Otherwise build from lease schedule
-  const lines = commissionLines.length > 0 ? commissionLines : schedule
-    .filter((s: { rentPSF: number }) => s.rentPSF > 0)
-    .map((s: { startDate: string; endDate: string; rentPSF: number }, i: number) => {
-      const start = new Date(s.startDate);
-      const end = new Date(s.endDate);
-      const years = Math.max(1, Math.round((end.getTime() - start.getTime()) / (365.25 * 24 * 3600 * 1000)));
-      return {
-        ratePSF: s.rentPSF,
-        termYears: years,
-        commissionRate: i === 0 ? 0.05 : 0.02, // Default: 5% first period, 2% thereafter
-      };
-    });
 
-  for (let i = 0; i < 6; i++) {
-    const row = 42 + i;
-    if (i < lines.length) {
-      const line = lines[i];
-      setFormula(`A${row}`, "=$I$23");
-      set(`D${row}`, line.ratePSF);
-      set(`G${row}`, line.termYears);
-      setFormula(`H${row}`, `=A${row}*D${row}*G${row}`);
-      set(`I${row}`, line.commissionRate);
-      setFormula(`J${row}`, `=H${row}*I${row}`);
-    } else {
-      // Clear unused rows but keep formulas for manual entry
-      set(`A${row}`, "");
-      set(`D${row}`, "");
-      set(`G${row}`, "");
-      setFormula(`H${row}`, `=A${row}*D${row}*G${row}`);
-      set(`I${row}`, "");
-      setFormula(`J${row}`, `=H${row}*I${row}`);
+  if (leaseCommType === "setFee") {
+    // Set fee: put total directly in J42, clear rest
+    const fee = data.leaseCommissionSetFee || 0;
+    set("A42", ""); set("D42", ""); set("G42", ""); set("H42", "");
+    set("I42", "Set Fee");
+    set("J42", fee);
+    for (let i = 1; i < 6; i++) {
+      const row = 42 + i;
+      set(`A${row}`, ""); set(`D${row}`, ""); set(`G${row}`, ""); set(`H${row}`, ""); set(`I${row}`, ""); set(`J${row}`, "");
     }
-    // @ signs in C and F columns
-    set(`C${row}`, "@");
-    set(`F${row}`, "@");
+  } else if (leaseCommType === "dollarPSF") {
+    // $/SF/Year: SF × $/SF × Term years — supports multiple rows
+    const sf = data.totalSF || 0;
+    const lines = data.dollarPSFLines && data.dollarPSFLines.length > 0
+      ? data.dollarPSFLines
+      : [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }];
+    for (let i = 0; i < 6; i++) {
+      const row = 42 + i;
+      if (i < lines.length) {
+        const line = lines[i];
+        set(`A${row}`, sf);
+        set(`C${row}`, "@");
+        set(`D${row}`, line.ratePSF || 0);
+        set(`F${row}`, "@");
+        set(`G${row}`, line.termYears || 0);
+        setFormula(`H${row}`, `=A${row}*D${row}*G${row}`);
+        set(`I${row}`, "$/SF/Yr");
+        setFormula(`J${row}`, `=H${row}`);
+      } else {
+        set(`A${row}`, ""); set(`D${row}`, ""); set(`G${row}`, ""); set(`H${row}`, ""); set(`I${row}`, ""); set(`J${row}`, "");
+      }
+    }
+  } else {
+    // Percentage: SF × Rate PSF × Term × Commission %
+    const commissionLines = data.commissionLines || [];
+    
+    const lines = commissionLines.length > 0 ? commissionLines : schedule
+      .filter((s: { rentPSF: number }) => s.rentPSF > 0)
+      .map((s: { startDate: string; endDate: string; rentPSF: number }, i: number) => {
+        const start = new Date(s.startDate);
+        const end = new Date(s.endDate);
+        const years = Math.max(1, Math.round((end.getTime() - start.getTime()) / (365.25 * 24 * 3600 * 1000)));
+        return {
+          ratePSF: s.rentPSF,
+          termYears: years,
+          commissionRate: i === 0 ? 0.05 : 0.02,
+        };
+      });
+
+    for (let i = 0; i < 6; i++) {
+      const row = 42 + i;
+      if (i < lines.length) {
+        const line = lines[i];
+        setFormula(`A${row}`, "=$I$23");
+        set(`D${row}`, line.ratePSF);
+        set(`G${row}`, line.termYears);
+        setFormula(`H${row}`, `=A${row}*D${row}*G${row}`);
+        set(`I${row}`, line.commissionRate);
+        setFormula(`J${row}`, `=H${row}*I${row}`);
+      } else {
+        set(`A${row}`, ""); set(`D${row}`, ""); set(`G${row}`, "");
+        set(`H${row}`, ""); set(`I${row}`, ""); set(`J${row}`, "");
+      }
+      set(`C${row}`, "@");
+      set(`F${row}`, "@");
+    }
   }
 
-  // Row 48: Totals (already has formulas in template)
+  // Row 48: Totals — ensure the SUM formula is intact
+  // J48 = SUM(J42:K47) is already in template, but set it explicitly to be safe
+  setFormula("J48", "=SUM(J42:K47)");
+
+  // Row 48: Total deal value
+  setFormula("E48", "=SUM(H42:H47)");
 
   // === COMMISSION DISTRIBUTION (rows 51-69) ===
   const splits = commission?.splits || [
@@ -234,9 +282,15 @@ async function generateLeaseFromTemplate(data: any, commission: any): Promise<Bu
   set("J49", data.closingContingency || "Lease Exec: \nOpening:");
   set("K49", data.closingContingencyOccupancy || "Occupancy:           Cash:");
 
-  // Row 51: Deposits held
-  set("J51", data.depositsHeld ?? "");
+  // Row 51: Deposits held (amount in J51, held by in J53, interest in I54/I55)
+  set("J51", data.depositsHeld ?? data.depositAmount ?? "");
   set("J53", data.depositHeldBy || "");
+  // Interest bearing: YES in I54, NO in I55
+  if (data.depositInterestBearing === true) {
+    set("I54", "YES:  ✓");
+  } else if (data.depositInterestBearing === false) {
+    set("I55", "NO:  ✓");
+  }
 
   // Row 58-59: Deal status
   set("I58", data.dealStatus === "Conditional" ? "Conditional:  ✓" : "Conditional:");
@@ -255,6 +309,9 @@ async function generateLeaseFromTemplate(data: any, commission: any): Promise<Bu
 
   // Row 72: CBRE Broker
   set("I72", splits[0]?.name || "Michael Bratvold");
+
+  // Force Excel to recalculate all formulas on open
+  wb.calcProperties = { fullCalcOnLoad: true };
 
   // Generate buffer
   const buffer = await wb.xlsx.writeBuffer();
@@ -399,12 +456,14 @@ async function generateSaleFromTemplate(data: any, commission: any): Promise<Buf
   set("J48", data.outsideBrokerCommission ?? 0);
 
   // Row 53: Commission calculation
-  set("A53", data.purchasePrice ?? "");
-  if (data.commissionType === "setFee") {
+  const price = data.purchasePrice ?? 0;
+  set("A53", price);
+  if (data.commissionType === "setFee" && data.commissionSetFee) {
     set("E53", "Set Fee Agreement");
-    set("H53", data.commissionSetFee ?? "");
+    set("H53", data.commissionSetFee);
   } else {
-    set("E53", data.commissionPercentage || "");
+    const commPct = data.commissionPercentage || 0;
+    set("E53", commPct);
     setFormula("H53", `=A53*E53`);
   }
 
@@ -418,30 +477,37 @@ async function generateSaleFromTemplate(data: any, commission: any): Promise<Buf
   ];
 
   const offices = commission?.offices || [];
+  // Main branch share — first office is always the main branch (Saskatoon)
+  const mainBranchShare = offices.length > 0 ? offices[0].share : 0.5;
 
-  // Row 59: Main branch total
-  setFormula("I59", `=(H55*0.5)/2`);
+  // Row 59: Main branch total = (Total Commission × branch share) / 2
+  set("A59", offices[0]?.branchNum || "100101");
+  set("B59", offices[0]?.name || "Saskatoon");
+  setFormula("I59", `=(H55*${mainBranchShare})/2`);
 
-  // Rows 60-64: Individual splits
+  // Rows 60+: Individual splits within main branch
   for (let i = 0; i < splits.length && i < 10; i++) {
     const row = 60 + i;
-    set(`B${row}`, "Saskatoon");
+    set(`B${row}`, offices[0]?.name || "Saskatoon");
     set(`E${row}`, splits[i].name);
     setFormula(`I${row}`, `=$I$59*${splits[i].pct}`);
   }
 
-  // Additional offices
-  if (offices.length > 0) {
+  // Additional offices (starting after main branch splits + 1 gap row)
+  if (offices.length > 1) {
     let row = 60 + splits.length + 1;
-    for (const office of offices) {
+    for (let oi = 1; oi < offices.length; oi++) {
+      const office = offices[oi];
+      set(`A${row}`, office.branchNum || "");
       set(`B${row}`, office.name);
+      const officeRow = row;
       setFormula(`I${row}`, `=(H55*${office.share})/2`);
       row++;
       if (office.people) {
         for (const p of office.people) {
           set(`B${row}`, office.name);
           set(`E${row}`, p.name);
-          setFormula(`I${row}`, `=I${row - 1 - office.people.indexOf(p)}*${p.pct}`);
+          setFormula(`I${row}`, `=I${officeRow}*${p.pct}`);
           row++;
         }
       }
@@ -457,6 +523,9 @@ async function generateSaleFromTemplate(data: any, commission: any): Promise<Buf
 
   // Broker name
   set("G75", `Broker:  ${splits[0]?.name || "Michael Bratvold"}`);
+
+  // Force Excel to recalculate all formulas on open
+  wb.calcProperties = { fullCalcOnLoad: true };
 
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);

@@ -1,5 +1,5 @@
 import { db, schema } from "@/db";
-import { like, or, and, eq } from "drizzle-orm";
+import { like, or, and, eq, sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import {
   sanitizeString,
@@ -15,6 +15,9 @@ export async function GET(req: NextRequest) {
   if (auth instanceof Response) return auth;
   const status = req.nextUrl.searchParams.get("status");
   const search = req.nextUrl.searchParams.get("search");
+  const assetType = req.nextUrl.searchParams.get("assetType");
+  const sfMin = req.nextUrl.searchParams.get("sfMin");
+  const sfMax = req.nextUrl.searchParams.get("sfMax");
 
   const conditions = [];
   if (status) conditions.push(eq(schema.inquiries.status, status));
@@ -27,6 +30,16 @@ export async function GET(req: NextRequest) {
       like(schema.inquiries.businessDescription, s),
       like(schema.inquiries.notes, s),
     )!);
+  }
+  if (assetType) {
+    conditions.push(like(schema.inquiries.assetTypePreference, `%${assetType}%`));
+  }
+  // Parse numeric SF from text field (strips commas, "SF", etc.)
+  if (sfMin) {
+    conditions.push(sql`CAST(REPLACE(REPLACE(REPLACE(LOWER(${schema.inquiries.spaceNeedsSf}), ',', ''), ' sf', ''), ' sq ft', '') AS INTEGER) >= ${Number(sfMin)}`);
+  }
+  if (sfMax) {
+    conditions.push(sql`CAST(REPLACE(REPLACE(REPLACE(LOWER(${schema.inquiries.spaceNeedsSf}), ',', ''), ' sf', ''), ' sq ft', '') AS INTEGER) <= ${Number(sfMax)}`);
   }
 
   const results = await db.select()
