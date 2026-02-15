@@ -142,8 +142,11 @@ function getGatewayConfig(): { url: string; token: string } {
   throw new Error("Could not read OpenClaw gateway config");
 }
 
-async function callAI(prompt: string, maxTokens = 4096): Promise<string> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function callAI(prompt: string | any[], maxTokens = 4096): Promise<string> {
   const gw = getGatewayConfig();
+  // Support both simple string prompts and multimodal content arrays
+  const content = typeof prompt === "string" ? prompt : prompt;
   const res = await fetch(gw.url, {
     method: "POST",
     headers: {
@@ -153,12 +156,60 @@ async function callAI(prompt: string, maxTokens = 4096): Promise<string> {
     body: JSON.stringify({
       model: "anthropic/claude-sonnet-4-20250514",
       max_tokens: maxTokens,
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content }],
     }),
   });
   if (!res.ok) throw new Error(`AI call failed: ${await res.text()}`);
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "";
+}
+
+// Convert PDF pages to base64 JPEG images using pdftoppm
+async function pdfPagesToBase64(filePath: string, maxPages = 8): Promise<string[]> {
+  const { execSync } = await import("child_process");
+  const tmpDir = `/tmp/pdf_vision_${Date.now()}`;
+  fs.mkdirSync(tmpDir, { recursive: true });
+  
+  try {
+    // Get page count
+    const infoOutput = execSync(`pdfinfo "${filePath}" 2>/dev/null`, { encoding: "utf-8" });
+    const pagesMatch = infoOutput.match(/Pages:\s+(\d+)/);
+    const totalPages = pagesMatch ? parseInt(pagesMatch[1]) : 1;
+    const pagesToProcess = Math.min(totalPages, maxPages);
+    
+    // Convert pages to JPEG
+    execSync(`pdftoppm -f 1 -l ${pagesToProcess} -jpeg -r 150 "${filePath}" "${tmpDir}/page"`, { timeout: 30000 });
+    
+    // Read and encode
+    const images: string[] = [];
+    const files = fs.readdirSync(tmpDir).filter(f => f.endsWith(".jpg")).sort();
+    for (const file of files) {
+      const buffer = fs.readFileSync(path.join(tmpDir, file));
+      images.push(buffer.toString("base64"));
+    }
+    return images;
+  } finally {
+    // Cleanup
+    try {
+      const files = fs.readdirSync(tmpDir);
+      for (const f of files) fs.unlinkSync(path.join(tmpDir, f));
+      fs.rmdirSync(tmpDir);
+    } catch { /* ignore cleanup errors */ }
+  }
+}
+
+// Call AI with vision (images + text prompt)
+async function callAIWithVision(images: string[], textPrompt: string, maxTokens = 4096): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const content: any[] = [];
+  for (const img of images) {
+    content.push({
+      type: "image_url",
+      image_url: { url: `data:image/jpeg;base64,${img}` }
+    });
+  }
+  content.push({ type: "text", text: textPrompt });
+  return callAI(content, maxTokens);
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +221,14 @@ async function extractText(filePath: string): Promise<string> {
   if (ext === ".pdf") {
     const buffer = fs.readFileSync(filePath);
     const data = await pdfParse(buffer);
+    // Detect scanned PDFs: very little text relative to page count
+    const textLen = data.text.trim().length;
+    const pageCount = data.numpages || 1;
+    const charsPerPage = textLen / pageCount;
+    if (charsPerPage < 100) {
+      // Likely scanned — mark for vision extraction
+      return `[SCANNED_PDF:${filePath}]`;
+    }
     return data.text;
   }
   if (ext === ".xlsx" || ext === ".xls") {
@@ -213,10 +272,11 @@ async function classifyDocuments(docs: { filename: string; text: string }[]): Pr
 - tax_assessment
 - appraisal
 - financial_statement
+- lease_agreement (an individual lease, offer to lease, sublease, or lease amendment for a SINGLE tenant)
 - other
 
 Return ONLY valid JSON — an object mapping filename to docType.
-Example: {"Property_Package.pdf": "offering_memorandum", "Rent_Roll.xlsx": "rent_roll"}
+Example: {"Property_Package.pdf": "offering_memorandum", "Rent_Roll.xlsx": "rent_roll", "Tenant_Lease.pdf": "lease_agreement"}
 
 ${summaries.join("\n\n")}`;
 
@@ -398,6 +458,57 @@ Extract:
   "millRate": {"value": null, "page": "", "confidence": "low"},
   "assessmentDate": {"value": null, "page": "", "confidence": "low"}
 }
+
+DOCUMENT TEXT:
+${truncatedText}`;
+  }
+
+  if (docType === "lease_agreement") {
+    return `You are a senior CRE analyst extracting key lease terms from an individual lease or offer to lease.
+Document: "${filename}"
+
+${commonInstructions}
+
+Extract into this structure:
+{
+  "tenant": {
+    "tenantName": {"value": null, "page": "", "confidence": "low"},
+    "suite": {"value": null, "page": "", "confidence": "low"},
+    "sf": {"value": null, "page": "", "confidence": "low"},
+    "leaseStart": {"value": null, "page": "", "confidence": "low"},
+    "leaseExpiry": {"value": null, "page": "", "confidence": "low"},
+    "baseRentPSF": {"value": null, "page": "", "confidence": "low"},
+    "baseRentAnnual": {"value": null, "page": "", "confidence": "low"},
+    "recoveryType": {"value": null, "page": "", "confidence": "low"},
+    "recoveryPSF": {"value": null, "page": "", "confidence": "low"},
+    "escalationType": {"value": null, "page": "", "confidence": "low"},
+    "escalationRate": {"value": null, "page": "", "confidence": "low"},
+    "freeRentMonths": {"value": null, "page": "", "confidence": "low"},
+    "tiAllowancePSF": {"value": null, "page": "", "confidence": "low"},
+    "renewalOptions": {"value": null, "page": "", "confidence": "low"}
+  },
+  "property": {
+    "name": {"value": null, "page": "", "confidence": "low"},
+    "address": {"value": null, "page": "", "confidence": "low"},
+    "city": {"value": null, "page": "", "confidence": "low"},
+    "propertyType": {"value": null, "page": "", "confidence": "low"}
+  },
+  "landlord": {
+    "name": {"value": null, "page": "", "confidence": "low"}
+  },
+  "rentSteps": [
+    {"startDate": null, "endDate": null, "rentPSF": null, "rentAnnual": null}
+  ]
+}
+
+IMPORTANT:
+- baseRentPSF should be ANNUAL $/SF (not monthly). If monthly, multiply by 12.
+- If only total rent and SF given, calculate PSF = total / SF.
+- If rent is described as "net" or "triple net" or "NNN", recoveryType is "NNN".
+- If there are multiple rent periods/escalations, list them all in rentSteps.
+- leaseStart and leaseExpiry should be ISO date format (YYYY-MM-DD) if possible.
+- sf should be numeric only (no commas).
+- Look for the tenant name in the first few pages — it's usually defined as "Tenant" or "Lessee".
 
 DOCUMENT TEXT:
 ${truncatedText}`;
@@ -624,6 +735,63 @@ function mergeExtractions(
       }
     }
 
+    if (doc.classifiedType === "lease_agreement") {
+      // Each lease becomes one tenant in the rent roll
+      if (data.tenant) {
+        const t = data.tenant;
+        const tenantName = extractFieldValue(t.tenantName).value;
+        const sf = extractFieldValue(t.sf).value;
+        const baseRentPSF = extractFieldValue(t.baseRentPSF).value;
+        const baseRentAnnual = extractFieldValue(t.baseRentAnnual).value;
+        
+        if (!inputs.tenants) inputs.tenants = [];
+        
+        const tenant: TenantRow = {
+          tenantName: tenantName || `Unknown (${doc.filename})`,
+          suite: extractFieldValue(t.suite).value || undefined,
+          sf: typeof sf === "number" ? sf : sf ? parseFloat(String(sf).replace(/[,\s]/g, "")) : undefined,
+          leaseStart: extractFieldValue(t.leaseStart).value || undefined,
+          leaseExpiry: extractFieldValue(t.leaseExpiry).value || undefined,
+          baseRentPSF: typeof baseRentPSF === "number" ? baseRentPSF : baseRentPSF ? parseFloat(String(baseRentPSF).replace(/[,$]/g, "")) : undefined,
+          baseRentAnnual: typeof baseRentAnnual === "number" ? baseRentAnnual : baseRentAnnual ? parseFloat(String(baseRentAnnual).replace(/[,$]/g, "")) : undefined,
+          recoveryType: extractFieldValue(t.recoveryType).value || undefined,
+          recoveryPSF: (() => { const v = extractFieldValue(t.recoveryPSF).value; return typeof v === "number" ? v : v ? parseFloat(String(v).replace(/[,$]/g, "")) : undefined; })(),
+          escalationType: extractFieldValue(t.escalationType).value || undefined,
+          escalationRate: (() => { const v = extractFieldValue(t.escalationRate).value; return typeof v === "number" ? v : v ? parseFloat(String(v).replace(/[,$]/g, "")) : undefined; })(),
+          isVacant: false,
+        };
+        
+        // Calculate missing fields
+        if (tenant.sf && tenant.baseRentPSF && !tenant.baseRentAnnual) {
+          tenant.baseRentAnnual = tenant.sf * tenant.baseRentPSF;
+        }
+        if (tenant.sf && tenant.baseRentAnnual && !tenant.baseRentPSF) {
+          tenant.baseRentPSF = tenant.baseRentAnnual / tenant.sf;
+        }
+        
+        inputs.tenants.push(tenant);
+        
+        auditTrail.push({
+          field: `tenant:${tenant.tenantName}`,
+          value: `${tenant.sf || "?"} SF @ $${tenant.baseRentPSF || "?"}/SF`,
+          sourceDoc: src,
+          page: extractFieldValue(t.sf).page || "unknown",
+          confidence: extractFieldValue(t.sf).confidence as AuditEntry["confidence"] || "medium",
+          sourceText: "",
+          reasoning: `Extracted from individual lease document: ${src}`,
+        });
+      }
+      
+      // Also capture property info from leases
+      if (data.property) {
+        const p = data.property;
+        recordField("propertyName", p.name, src);
+        recordField("propertyAddress", p.address, src);
+        recordField("city", p.city, src);
+        recordField("propertyType", p.propertyType, src);
+      }
+    }
+
     if (doc.classifiedType === "tax_assessment") {
       recordField("assessedValue", data.assessedValue, src);
       recordField("propertyTax", data.propertyTax, src);
@@ -842,7 +1010,29 @@ export async function extractFromDocuments(
       preClassified[doc.filename] = doc.docType;
     } else {
       const textEntry = allTexts.find((t) => t.filename === doc.filename);
-      if (textEntry) needsClassification.push(textEntry);
+      if (textEntry) {
+        // Scanned PDFs: classify by filename heuristics since we have no text
+        if (textEntry.text.startsWith("[SCANNED_PDF:")) {
+          const fn = textEntry.filename.toLowerCase();
+          if (fn.includes("lease") || fn.includes("otl") || fn.includes("offer to")) {
+            preClassified[doc.filename] = "lease_agreement";
+          } else if (fn.includes("rent roll")) {
+            preClassified[doc.filename] = "rent_roll";
+          } else if (fn.includes("financ") || fn.includes("operating") || fn.includes("income")) {
+            preClassified[doc.filename] = "operating_statement";
+          } else if (fn.includes("apprais")) {
+            preClassified[doc.filename] = "appraisal";
+          } else if (fn.includes("tax") || fn.includes("assess")) {
+            preClassified[doc.filename] = "tax_assessment";
+          } else {
+            // Default scanned docs — try to classify with first page vision
+            preClassified[doc.filename] = "lease_agreement"; // most common upload type
+            warnings.push(`Scanned PDF "${doc.filename}" classified as lease_agreement by default (no text for classification). Check if correct.`);
+          }
+        } else {
+          needsClassification.push(textEntry);
+        }
+      }
     }
   }
 
@@ -870,11 +1060,48 @@ export async function extractFromDocuments(
   const extractions: { doc: ClassifiedDoc; data: any }[] = [];
 
   for (const doc of classifiedDocs) {
-    if (!doc.text || doc.text.startsWith("[Image file:")) {
-      warnings.push(`Skipping ${doc.filename} — ${doc.text ? "image extraction not yet supported" : "no text content"}`);
+    if (!doc.text) {
+      warnings.push(`Skipping ${doc.filename} — no text content`);
       continue;
     }
+    
     try {
+      // Handle scanned PDFs with vision
+      if (doc.text.startsWith("[SCANNED_PDF:")) {
+        const scannedPath = doc.text.match(/\[SCANNED_PDF:(.*)\]/)?.[1];
+        if (!scannedPath) {
+          warnings.push(`Could not find path for scanned PDF: ${doc.filename}`);
+          continue;
+        }
+        
+        try {
+          const images = await pdfPagesToBase64(scannedPath, 10);
+          if (images.length === 0) {
+            warnings.push(`Could not convert ${doc.filename} to images`);
+            continue;
+          }
+          
+          const textPrompt = buildExtractionPrompt(doc.classifiedType, "", doc.filename)
+            .replace("DOCUMENT TEXT:\n", "The document pages are shown in the images above. Extract the requested information from these scanned pages.");
+          
+          const response = await callAIWithVision(images, textPrompt);
+          const data = safeParseJSON(response);
+          if (data) {
+            extractions.push({ doc, data });
+          } else {
+            warnings.push(`Failed to parse vision AI response for ${doc.filename}`);
+          }
+        } catch (err) {
+          warnings.push(`Vision extraction failed for ${doc.filename}: ${(err as Error).message}`);
+        }
+        continue;
+      }
+      
+      if (doc.text.startsWith("[Image file:")) {
+        warnings.push(`Skipping ${doc.filename} — standalone image extraction not yet supported`);
+        continue;
+      }
+      
       const prompt = buildExtractionPrompt(doc.classifiedType, doc.text, doc.filename);
       const response = await callAI(prompt);
       const data = safeParseJSON(response);
@@ -890,6 +1117,47 @@ export async function extractFromDocuments(
 
   // Step 4: Merge
   const { inputs, auditTrail, conflicts } = mergeExtractions(classifiedDocs, extractions);
+
+  // Step 4b: If we built a rent roll from individual leases, compute aggregates
+  if (inputs.tenants && inputs.tenants.length > 0) {
+    const totalSF = inputs.tenants.reduce((sum, t) => sum + (t.sf || 0), 0);
+    const totalRent = inputs.tenants.reduce((sum, t) => sum + (t.baseRentAnnual || 0), 0);
+    
+    if (totalSF > 0 && !inputs.nraSF) {
+      inputs.nraSF = totalSF;
+      auditTrail.push({
+        field: "nraSF",
+        value: String(totalSF),
+        sourceDoc: "Computed from leases",
+        page: "N/A",
+        confidence: "high",
+        sourceText: "",
+        reasoning: `Sum of ${inputs.tenants.length} tenant spaces from uploaded leases.`,
+      });
+    }
+    
+    if (totalRent > 0 && !inputs.baseRent) {
+      inputs.baseRent = totalRent;
+      auditTrail.push({
+        field: "baseRent",
+        value: String(totalRent),
+        sourceDoc: "Computed from leases",
+        page: "N/A",
+        confidence: "high",
+        sourceText: "",
+        reasoning: `Sum of ${inputs.tenants.length} tenant rents from uploaded leases.`,
+      });
+    }
+    
+    // Compute recovery income from tenants if available
+    const totalRecovery = inputs.tenants.reduce((sum, t) => {
+      if (t.recoveryPSF && t.sf) return sum + (t.recoveryPSF * t.sf);
+      return sum;
+    }, 0);
+    if (totalRecovery > 0 && !inputs.recoveryIncome) {
+      inputs.recoveryIncome = totalRecovery;
+    }
+  }
 
   // Step 5: Defaults
   applyDefaults(inputs, auditTrail, warnings);
