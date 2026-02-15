@@ -20,12 +20,21 @@ function getGatewayConfig(): { url: string; token: string } {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function callAI(messages: any[], maxTokens = 8192): Promise<string> {
   const gw = getGatewayConfig();
+  const payload = JSON.stringify({ model: "anthropic/claude-sonnet-4-20250514", max_tokens: maxTokens, messages });
+  
+  // Log payload size for debugging large vision requests
+  const payloadSizeMB = (payload.length / (1024 * 1024)).toFixed(1);
+  console.log(`[TR Extract] AI call: ${payloadSizeMB}MB payload`);
+  
   const res = await fetch(gw.url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${gw.token}` },
-    body: JSON.stringify({ model: "anthropic/claude-sonnet-4-20250514", max_tokens: maxTokens, messages }),
+    body: payload,
   });
-  if (!res.ok) throw new Error(`AI call failed: ${await res.text()}`);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "unknown error");
+    throw new Error(`AI call failed (${res.status}): ${errText}`);
+  }
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "";
 }
@@ -149,34 +158,41 @@ Occupier Industry must be one of: ${OCCUPIER_INDUSTRIES.join(", ")}
 ${textOrVision ? "Extract from the document images provided." : "Extract from the document text provided."}`;
 }
 
-async function extractWithVision(filePath: string, trType: string): Promise<string> {
+async function extractScannedPdf(filePath: string, trType: string): Promise<string> {
   const tmpDir = path.join(process.cwd(), "tmp", `pdf-${Date.now()}`);
   fs.mkdirSync(tmpDir, { recursive: true });
 
   try {
-    // Convert PDF to JPEG images using pdftoppm
+    // Convert PDF pages to images for OCR
     execSync(`pdftoppm -jpeg -r 200 "${filePath}" "${tmpDir}/page"`, { timeout: 60000 });
     const files = fs.readdirSync(tmpDir).filter(f => f.endsWith(".jpg")).sort();
 
     if (files.length === 0) throw new Error("No pages extracted from PDF");
 
-    // Build vision messages - send up to 15 pages
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const content: any[] = [];
+    // OCR each page using tesseract
+    const pageTexts: string[] = [];
     const maxPages = Math.min(files.length, 15);
     for (let i = 0; i < maxPages; i++) {
-      const imgData = fs.readFileSync(path.join(tmpDir, files[i]));
-      const base64 = imgData.toString("base64");
-      content.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64}` } });
+      const imgPath = path.join(tmpDir, files[i]);
+      try {
+        const text = execSync(`tesseract "${imgPath}" stdout -l eng 2>/dev/null`, { timeout: 15000, encoding: "utf-8" });
+        if (text.trim().length > 20) {
+          pageTexts.push(`--- Page ${i + 1} ---\n${text.trim()}`);
+        }
+      } catch {
+        // OCR failed for this page — skip
+      }
     }
-    content.push({
-      type: "text",
-      text: trType === "lease" ? buildLeasePrompt(true) : buildSalePrompt(true),
-    });
 
-    return await callAI([{ role: "user", content }], 8192);
+    if (pageTexts.length === 0) {
+      throw new Error("OCR could not extract text from any pages");
+    }
+
+    const fullText = pageTexts.join("\n\n");
+    console.log(`[TR Extract] OCR extracted ${fullText.length} chars from ${pageTexts.length} pages`);
+    
+    return await extractWithText(fullText, trType);
   } finally {
-    // Cleanup
     try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
   }
 }
@@ -208,16 +224,29 @@ export async function POST(req: NextRequest) {
 
     try {
       if (file.name.toLowerCase().endsWith(".pdf")) {
-        // Try text extraction first
-        const pdfData = await pdfParse(buffer);
-        const textLength = pdfData.text.replace(/\s+/g, " ").trim().length;
-        const charPerPage = pdfData.numpages > 0 ? textLength / pdfData.numpages : 0;
+        let useVision = false;
+        let pdfText = "";
+        
+        // Try text extraction first — may fail on encrypted/scanned PDFs
+        try {
+          const pdfData = await pdfParse(buffer);
+          const textLength = pdfData.text.replace(/\s+/g, " ").trim().length;
+          const charPerPage = pdfData.numpages > 0 ? textLength / pdfData.numpages : 0;
+          
+          if (charPerPage < 100) {
+            useVision = true;
+          } else {
+            pdfText = pdfData.text;
+          }
+        } catch {
+          // pdf-parse failed (encrypted, corrupted, etc.) — fall back to vision
+          useVision = true;
+        }
 
-        // If very little text per page, likely scanned
-        if (charPerPage < 100) {
-          responseText = await extractWithVision(tmpPath, trType);
+        if (useVision) {
+          responseText = await extractScannedPdf(tmpPath, trType);
         } else {
-          responseText = await extractWithText(pdfData.text, trType);
+          responseText = await extractWithText(pdfText, trType);
         }
       } else {
         // Non-PDF - try reading as text
@@ -231,10 +260,17 @@ export async function POST(req: NextRequest) {
     // Parse JSON from response
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      return NextResponse.json({ error: "Failed to parse extraction response" }, { status: 500 });
+      console.error("[TR Extract] No JSON found in AI response:", responseText.slice(0, 500));
+      return NextResponse.json({ error: "Failed to parse extraction response. AI returned no structured data." }, { status: 500 });
     }
 
-    const extracted = JSON.parse(jsonMatch[0]);
+    let extracted;
+    try {
+      extracted = JSON.parse(jsonMatch[0]);
+    } catch (parseErr) {
+      console.error("[TR Extract] JSON parse error:", (parseErr as Error).message, "Response:", jsonMatch[0].slice(0, 300));
+      return NextResponse.json({ error: "Failed to parse JSON from extraction" }, { status: 500 });
+    }
     return NextResponse.json({ data: extracted, type: trType });
   } catch (err) {
     console.error("Trade record extraction error:", err);

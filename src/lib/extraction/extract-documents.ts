@@ -198,18 +198,34 @@ async function pdfPagesToBase64(filePath: string, maxPages = 8): Promise<string[
   }
 }
 
-// Call AI with vision (images + text prompt)
-async function callAIWithVision(images: string[], textPrompt: string, maxTokens = 4096): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const content: any[] = [];
-  for (const img of images) {
-    content.push({
-      type: "image_url",
-      image_url: { url: `data:image/jpeg;base64,${img}` }
-    });
+// OCR scanned PDF pages to text using tesseract, then call AI with text
+async function ocrPdfToText(filePath: string, maxPages = 10): Promise<string> {
+  const { execSync } = await import("child_process");
+  const tmpDir = `/tmp/pdf_ocr_${Date.now()}`;
+  fs.mkdirSync(tmpDir, { recursive: true });
+  
+  try {
+    execSync(`pdftoppm -f 1 -l ${maxPages} -jpeg -r 200 "${filePath}" "${tmpDir}/page"`, { timeout: 60000 });
+    const files = fs.readdirSync(tmpDir).filter(f => f.endsWith(".jpg")).sort();
+    
+    const pageTexts: string[] = [];
+    for (const file of files) {
+      try {
+        const text = execSync(`tesseract "${path.join(tmpDir, file)}" stdout -l eng 2>/dev/null`, { timeout: 15000, encoding: "utf-8" });
+        if (text.trim().length > 20) {
+          pageTexts.push(text.trim());
+        }
+      } catch { /* skip failed pages */ }
+    }
+    
+    return pageTexts.join("\n\n");
+  } finally {
+    try {
+      const files = fs.readdirSync(tmpDir);
+      for (const f of files) fs.unlinkSync(path.join(tmpDir, f));
+      fs.rmdirSync(tmpDir);
+    } catch { /* ignore */ }
   }
-  content.push({ type: "text", text: textPrompt });
-  return callAI(content, maxTokens);
 }
 
 // ---------------------------------------------------------------------------
@@ -1075,24 +1091,24 @@ export async function extractFromDocuments(
         }
         
         try {
-          const images = await pdfPagesToBase64(scannedPath, 10);
-          if (images.length === 0) {
-            warnings.push(`Could not convert ${doc.filename} to images`);
+          const ocrText = await ocrPdfToText(scannedPath, 10);
+          if (!ocrText || ocrText.length < 50) {
+            warnings.push(`OCR could not extract readable text from ${doc.filename}`);
             continue;
           }
           
-          const textPrompt = buildExtractionPrompt(doc.classifiedType, "", doc.filename)
-            .replace("DOCUMENT TEXT:\n", "The document pages are shown in the images above. Extract the requested information from these scanned pages.");
-          
-          const response = await callAIWithVision(images, textPrompt);
+          // Replace the doc's text with OCR result and process normally
+          doc.text = ocrText;
+          const prompt = buildExtractionPrompt(doc.classifiedType, ocrText, doc.filename);
+          const response = await callAI(prompt);
           const data = safeParseJSON(response);
           if (data) {
             extractions.push({ doc, data });
           } else {
-            warnings.push(`Failed to parse vision AI response for ${doc.filename}`);
+            warnings.push(`Failed to parse AI response for scanned ${doc.filename}`);
           }
         } catch (err) {
-          warnings.push(`Vision extraction failed for ${doc.filename}: ${(err as Error).message}`);
+          warnings.push(`OCR extraction failed for ${doc.filename}: ${(err as Error).message}`);
         }
         continue;
       }
