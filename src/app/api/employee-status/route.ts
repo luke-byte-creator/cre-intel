@@ -1,5 +1,7 @@
+import { NextRequest } from "next/server";
 import { db, schema } from "@/db";
 import { sql } from "drizzle-orm";
+import { requireAuth } from "@/lib/auth";
 
 // Agent-to-tool mapping: each agent activates when their tool is used by a human today
 const AGENT_DEFS = [
@@ -75,7 +77,9 @@ interface ActivityRow {
   path: string | null;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof Response) return auth;
   // Get today's start in UTC
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
