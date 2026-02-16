@@ -74,8 +74,8 @@ export default function PropertyProfile() {
           (data.comps || []).length === 0 ? (
             <div className="bg-card border border-card-border rounded-xl p-8 text-center text-muted text-sm">No transactions</div>
           ) : (
-            <div className="bg-card border border-card-border rounded-xl overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="card-elevated overflow-x-auto">
+              <table className="data-table">
                 <thead><tr className="border-b border-card-border">
                   <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Type</th>
                   <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Date</th>
@@ -114,8 +114,8 @@ export default function PropertyProfile() {
           data.permits.length === 0 ? (
             <div className="bg-card border border-card-border rounded-xl p-8 text-center text-muted text-sm">No permits</div>
           ) : (
-            <div className="bg-card border border-card-border rounded-xl overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="card-elevated overflow-x-auto">
+              <table className="data-table">
                 <thead><tr className="border-b border-card-border">
                   <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Permit #</th>
                   <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Date</th>

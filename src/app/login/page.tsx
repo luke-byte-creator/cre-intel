@@ -37,12 +37,12 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-sm">
-        <div className="bg-card border border-card-border rounded-xl p-8 shadow-lg">
-          <div className="mb-6 text-center">
-            <h1 className="text-xl font-bold tracking-tight text-foreground">
+        <div className="card-elevated p-8">
+          <div className="mb-8 text-center">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
               <span className="text-gradient">Nova</span>
             </h1>
-            <p className="text-xs text-muted mt-1">CRE Intelligence Platform</p>
+            <p className="text-xs text-muted mt-1.5">CRE Intelligence Platform</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">

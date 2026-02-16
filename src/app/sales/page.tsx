@@ -459,21 +459,21 @@ export default function SalesPage({ embedded, embeddedSearch, embeddedPropertyTy
         <>
           {/* Desktop Table */}
           <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="data-table">
               <thead>
-                <tr className="bg-zinc-800 text-left text-zinc-400 text-xs uppercase tracking-wider">
-                  <th className="px-3 py-3 w-10">
+                <tr>
+                  <th className="w-10 !px-3">
                     <input type="checkbox" checked={selected.size === data.length && data.length > 0} onChange={selectAll}
                       className="rounded border-zinc-600 bg-zinc-900 text-blue-500 focus:ring-blue-500/50" />
                   </th>
-                  <th className="px-3 py-3 cursor-pointer hover:text-white" onClick={() => toggleSort("sale_date")}>Date<SortIcon col="sale_date" /></th>
-                  <th className="px-3 py-3 cursor-pointer hover:text-white" onClick={() => toggleSort("address")}>Address<SortIcon col="address" /></th>
-                  <th className="px-3 py-3 cursor-pointer hover:text-white" onClick={() => toggleSort("city")}>City<SortIcon col="city" /></th>
-                  <th className="px-3 py-3">Vendor</th>
-                  <th className="px-3 py-3">Purchaser</th>
-                  <th className="px-3 py-3 cursor-pointer hover:text-white text-right" onClick={() => toggleSort("sale_price")}>Price<SortIcon col="sale_price" /></th>
-                  <th className="px-3 py-3 cursor-pointer hover:text-white" onClick={() => toggleSort("property_type")}>Type<SortIcon col="property_type" /></th>
-                  <th className="px-3 py-3 text-center w-10">Status</th>
+                  <th className="cursor-pointer hover:text-white" onClick={() => toggleSort("sale_date")}>Date<SortIcon col="sale_date" /></th>
+                  <th className="cursor-pointer hover:text-white" onClick={() => toggleSort("address")}>Address<SortIcon col="address" /></th>
+                  <th className="cursor-pointer hover:text-white" onClick={() => toggleSort("city")}>City<SortIcon col="city" /></th>
+                  <th>Vendor</th>
+                  <th>Purchaser</th>
+                  <th className="cursor-pointer hover:text-white text-right" onClick={() => toggleSort("sale_price")}>Price<SortIcon col="sale_price" /></th>
+                  <th className="cursor-pointer hover:text-white" onClick={() => toggleSort("property_type")}>Type<SortIcon col="property_type" /></th>
+                  <th className="text-center w-10">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -559,19 +559,19 @@ export default function SalesPage({ embedded, embeddedSearch, embeddedPropertyTy
 function CompRow({ r, expanded, isSelected, onToggle, onSelect, onEdit, onRefresh }: { r: Comp; expanded: boolean; isSelected: boolean; onToggle: () => void; onSelect: (e: React.MouseEvent) => void; onEdit: () => void; onRefresh: () => void }) {
   return (
     <>
-      <tr className={`border-b border-zinc-700 ${isSelected ? "bg-blue-500/10" : "bg-zinc-900"} hover:bg-zinc-800 cursor-pointer transition-colors`}>
-        <td className="px-3 py-3" onClick={onSelect}>
+      <tr className={`${isSelected ? "!bg-blue-500/10" : ""} cursor-pointer transition-colors`}>
+        <td className="!px-3" onClick={onSelect}>
           <input type="checkbox" checked={isSelected} readOnly
             className="rounded border-zinc-600 bg-zinc-900 text-blue-500 focus:ring-blue-500/50 pointer-events-none" />
         </td>
-        <td className="px-3 py-3 whitespace-nowrap text-zinc-300" onClick={onToggle}>{fmtDate(r.saleDate)}</td>
-        <td className="px-3 py-3 text-white font-medium" onClick={onToggle}>{r.address}{r.unit ? ` ${r.unit}` : ""}</td>
-        <td className="px-3 py-3 text-zinc-300" onClick={onToggle}>{r.city || "—"}</td>
-        <td className="px-3 py-3 text-zinc-300 max-w-[180px] truncate" onClick={onToggle}>{r.seller || "—"}</td>
-        <td className="px-3 py-3 text-zinc-300 max-w-[180px] truncate" onClick={onToggle}>{r.purchaser || "—"}</td>
-        <td className="px-3 py-3 text-right font-mono text-white" onClick={onToggle}>{fmtPrice(r.salePrice)}</td>
-        <td className="px-3 py-3" onClick={onToggle}><span className="px-2 py-0.5 rounded text-xs bg-zinc-600 text-zinc-200">{r.propertyType || "—"}</span></td>
-        <td className="px-3 py-3 text-center" onClick={onToggle}>
+        <td className="whitespace-nowrap text-muted" onClick={onToggle}>{fmtDate(r.saleDate)}</td>
+        <td className="text-foreground font-medium" onClick={onToggle}>{r.address}{r.unit ? ` ${r.unit}` : ""}</td>
+        <td className="text-muted" onClick={onToggle}>{r.city || "—"}</td>
+        <td className="text-muted max-w-[180px] truncate" onClick={onToggle}>{r.seller || "—"}</td>
+        <td className="text-muted max-w-[180px] truncate" onClick={onToggle}>{r.purchaser || "—"}</td>
+        <td className="text-right font-mono text-foreground" onClick={onToggle}>{fmtPrice(r.salePrice)}</td>
+        <td onClick={onToggle}><span className="px-2 py-0.5 rounded text-xs bg-card-border text-foreground/80">{r.propertyType || "—"}</span></td>
+        <td className="text-center" onClick={onToggle}>
           <span className={`inline-block w-2.5 h-2.5 rounded-full ${r.isResearched ? "bg-emerald-500" : "bg-red-500"}`} title={r.isResearched ? "Researched" : "Not researched"} />
         </td>
       </tr>

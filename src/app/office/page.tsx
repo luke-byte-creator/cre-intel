@@ -199,21 +199,21 @@ export default function OfficePage() {
         <>
           {/* Desktop Table */}
           <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="data-table">
               <thead>
-                <tr className="text-left text-zinc-400 border-b border-zinc-700">
-                  <th className="px-4 py-3 cursor-pointer hover:text-white" onClick={() => toggleSort("buildingName")}>Building{arrow("buildingName")}</th>
-                  <th className="px-4 py-3 cursor-pointer hover:text-white" onClick={() => toggleSort("buildingClass")}>Class{arrow("buildingClass")}</th>
-                  <th className="px-4 py-3 cursor-pointer hover:text-white text-right" onClick={() => toggleSort("totalSF")}>Total SF{arrow("totalSF")}</th>
-                  <th className="px-4 py-3 cursor-pointer hover:text-white text-right" onClick={() => toggleSort("vacancyRate")}>Vacancy{arrow("vacancyRate")}</th>
-                  <th className="px-4 py-3 cursor-pointer hover:text-white text-right" onClick={() => toggleSort("netAskingRate")}>Net Ask{arrow("netAskingRate")}</th>
-                  <th className="px-4 py-3 cursor-pointer hover:text-white text-right" onClick={() => toggleSort("grossRate")}>Gross{arrow("grossRate")}</th>
-                  <th className="px-4 py-3 cursor-pointer hover:text-white text-right" onClick={() => toggleSort("floors")}>Floors{arrow("floors")}</th>
-                  <th className="px-4 py-3 cursor-pointer hover:text-white text-right" onClick={() => toggleSort("yearBuilt")}>Built{arrow("yearBuilt")}</th>
-                  <th className="px-4 py-3">Owner</th>
+                <tr>
+                  <th className="cursor-pointer hover:text-white" onClick={() => toggleSort("buildingName")}>Building{arrow("buildingName")}</th>
+                  <th className="cursor-pointer hover:text-white" onClick={() => toggleSort("buildingClass")}>Class{arrow("buildingClass")}</th>
+                  <th className="cursor-pointer hover:text-white text-right" onClick={() => toggleSort("totalSF")}>Total SF{arrow("totalSF")}</th>
+                  <th className="cursor-pointer hover:text-white text-right" onClick={() => toggleSort("vacancyRate")}>Vacancy{arrow("vacancyRate")}</th>
+                  <th className="cursor-pointer hover:text-white text-right" onClick={() => toggleSort("netAskingRate")}>Net Ask{arrow("netAskingRate")}</th>
+                  <th className="cursor-pointer hover:text-white text-right" onClick={() => toggleSort("grossRate")}>Gross{arrow("grossRate")}</th>
+                  <th className="cursor-pointer hover:text-white text-right" onClick={() => toggleSort("floors")}>Floors{arrow("floors")}</th>
+                  <th className="cursor-pointer hover:text-white text-right" onClick={() => toggleSort("yearBuilt")}>Built{arrow("yearBuilt")}</th>
+                  <th>Owner</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-800">
+              <tbody>
                 {data.map(b => (
                   <BuildingRow key={b.id} b={b} expanded={expanded === b.id} onToggle={() => toggleExpand(b.id)}
                     units={expanded === b.id ? units : []} unitsLoading={unitsLoading && expanded === b.id}
@@ -275,27 +275,27 @@ function BuildingRow({ b, expanded, onToggle, units, unitsLoading, editingUnit, 
 }) {
   return (
     <>
-      <tr className="hover:bg-zinc-800/60 cursor-pointer transition-colors" onClick={onToggle}>
-        <td className="px-4 py-3">
-          <p className="text-white font-medium">{b.buildingName || b.address}</p>
-          {b.buildingName && <p className="text-zinc-500 text-xs">{b.streetNumber ? `${b.streetNumber} ` : ""}{b.address}</p>}
+      <tr className="cursor-pointer transition-colors" onClick={onToggle}>
+        <td>
+          <p className="text-foreground font-medium">{b.buildingName || b.address}</p>
+          {b.buildingName && <p className="text-muted-dim text-xs">{b.streetNumber ? `${b.streetNumber} ` : ""}{b.address}</p>}
         </td>
         <td className="px-4 py-3">
           <span className={`text-xs px-2 py-0.5 rounded-full ${CLASS_COLORS[b.buildingClass || ""] || "bg-zinc-600 text-zinc-300"}`}>
             {b.buildingClass || "—"}
           </span>
         </td>
-        <td className="px-4 py-3 text-right text-white font-mono">{b.totalSF?.toLocaleString() || "—"}</td>
-        <td className="px-4 py-3 text-right">
+        <td className="text-right text-foreground font-mono">{b.totalSF?.toLocaleString() || "—"}</td>
+        <td className="text-right">
           <span className={b.vacancyRate && b.vacancyRate > 20 ? "text-red-400" : b.vacancyRate && b.vacancyRate > 10 ? "text-amber-400" : "text-emerald-400"}>
             {b.vacancyRate != null ? b.vacancyRate.toFixed(1) + "%" : "—"}
           </span>
         </td>
-        <td className="px-4 py-3 text-right text-zinc-300 font-mono">{b.netAskingRate ? "$" + b.netAskingRate.toFixed(2) : "—"}</td>
-        <td className="px-4 py-3 text-right text-zinc-300 font-mono">{b.grossRate ? "$" + b.grossRate.toFixed(2) : "—"}</td>
-        <td className="px-4 py-3 text-right text-zinc-400">{b.floors || "—"}</td>
-        <td className="px-4 py-3 text-right text-zinc-400">{b.yearBuilt || "—"}</td>
-        <td className="px-4 py-3 text-zinc-400 text-xs max-w-[200px] truncate">{b.owner || "—"}</td>
+        <td className="text-right text-muted font-mono">{b.netAskingRate ? "$" + b.netAskingRate.toFixed(2) : "—"}</td>
+        <td className="text-right text-muted font-mono">{b.grossRate ? "$" + b.grossRate.toFixed(2) : "—"}</td>
+        <td className="text-right text-muted">{b.floors || "—"}</td>
+        <td className="text-right text-muted">{b.yearBuilt || "—"}</td>
+        <td className="text-muted text-xs max-w-[200px] truncate">{b.owner || "—"}</td>
       </tr>
       {expanded && (
         <tr className="bg-zinc-800/30">

@@ -269,8 +269,8 @@ export default function TransactionsPage() {
                     </button>
                   )}
                 </div>
-                <div className="hidden md:block overflow-x-auto bg-card border border-card-border rounded-xl">
-                  <table className="w-full text-sm">
+                <div className="hidden md:block overflow-x-auto card-elevated">
+                  <table className="data-table">
                     <thead>
                       <tr className="border-b border-card-border bg-card-hover/50">
                         <th className="w-8 px-3 py-3"><span className="sr-only">Select</span></th>

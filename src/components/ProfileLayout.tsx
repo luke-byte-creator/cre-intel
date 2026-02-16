@@ -99,11 +99,11 @@ export function ProfileTabs({ tabs, activeTab, onTabChange }: ProfileTabsProps) 
 
 export function DetailGrid({ items }: { items: [string, string | number | null | undefined][] }) {
   return (
-    <div className="bg-card border border-card-border rounded-xl divide-y divide-card-border/50">
+    <div className="card-elevated divide-y divide-card-border/50">
       {items.map(([label, val], i) => (
-        <div key={label} className={`px-5 py-3 flex items-start gap-4 ${i % 2 === 0 ? "" : "bg-white/[0.01]"}`}>
-          <span className="text-muted text-sm w-40 flex-shrink-0 font-medium">{label}</span>
-          <span className="text-foreground text-sm">{(val as string) || "—"}</span>
+        <div key={label} className={`px-5 py-3 flex items-start gap-4 ${i % 2 === 0 ? "" : "bg-white/[0.02]"}`}>
+          <span className="text-muted-dim text-sm w-40 flex-shrink-0">{label}</span>
+          <span className="text-foreground text-sm font-medium">{(val as string) || "—"}</span>
         </div>
       ))}
     </div>

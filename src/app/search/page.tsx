@@ -345,7 +345,7 @@ function CompaniesTable({ companies, watchedKeys, onWatched, onDeleted }: { comp
       <div className="divide-y divide-zinc-700/50">
         {companies.map((c: any) => (
           <div key={c.id} className="flex items-center hover:bg-zinc-800 transition-colors">
-            <Link href={`/companies/${c.id}`} className="flex-1 px-5 py-3">
+            <Link href={`/companies/${c.id}`} className="flex-1 px-4 py-2">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-white">{c.name}</p>
@@ -382,7 +382,7 @@ function PeopleTable({ people, watchedKeys, onWatched, onDeleted }: { people: an
       <div className="divide-y divide-zinc-700/50">
         {people.map((p: any) => (
           <div key={p.id} className="flex items-center hover:bg-zinc-800 transition-colors">
-            <Link href={`/people/${p.id}`} className="flex-1 px-5 py-3">
+            <Link href={`/people/${p.id}`} className="flex-1 px-4 py-2">
               <p className="text-sm font-medium text-white">{p.fullName}</p>
               <p className="text-xs text-zinc-500 mt-0.5">
                 {p.email || p.phone
@@ -407,7 +407,7 @@ function PropertiesTable({ properties, watchedKeys, onWatched, onDeleted }: { pr
       <div className="divide-y divide-zinc-700/50">
         {properties.map((p: any) => (
           <div key={p.id} className="flex items-center hover:bg-zinc-800 transition-colors">
-            <Link href={`/properties/${p.id}`} className="flex-1 px-5 py-3">
+            <Link href={`/properties/${p.id}`} className="flex-1 px-4 py-2">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-white">{p.address}</p>
@@ -440,7 +440,7 @@ function CompsTable({ comps, total, onDeleted, watchedKeys, onWatched }: { comps
       <div className="divide-y divide-zinc-700/50">
         {comps.map((c: any) => (
           <div key={c.id} className="flex items-center hover:bg-zinc-800 transition-colors">
-            <Link href={c.type === "Sale" ? "/sales" : "/leases"} className="flex-1 px-5 py-3">
+            <Link href={c.type === "Sale" ? "/sales" : "/leases"} className="flex-1 px-4 py-2">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
