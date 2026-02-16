@@ -219,7 +219,7 @@ function DealTodos({ dealId, todos, onToggle }: { dealId: number; todos: Todo[];
 /* Todo List Section */
 function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; todos: Todo[]; fetchTodos: () => void; fetchDeals: () => void }) {
   const [newText, setNewText] = useState("");
-  const [hideCompleted, setHideCompleted] = useState(false);
+  const [hideCompleted, setHideCompleted] = useState(true);
   const [showAllCompleted, setShowAllCompleted] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestionFilter, setSuggestionFilter] = useState("");
