@@ -709,6 +709,9 @@ export default function PipelinePage() {
       })()}
 
       {activeTab === "pipeline" && (<>
+      {/* To Do Section */}
+      <TodoSection deals={deals} todos={todos} fetchTodos={fetchTodos} fetchDeals={fetchDeals} />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Deal Pipeline</h1>
@@ -840,8 +843,6 @@ export default function PipelinePage() {
         })}
       </div>
 
-      {/* To Do Section */}
-      <TodoSection deals={deals} todos={todos} fetchTodos={fetchTodos} fetchDeals={fetchDeals} />
       </>)}
     </div>
   );
