@@ -482,30 +482,11 @@ export const pipelineTodos = sqliteTable("pipeline_todos", {
   text: text("text").notNull(),
   completed: integer("completed").default(0),
   sortOrder: integer("sort_order").notNull(),
-  dueDate: text("due_date"),
   completedAt: text("completed_at"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_pipeline_todos_deal_id").on(table.dealId),
   index("idx_pipeline_todos_sort_order").on(table.sortOrder),
-]);
-
-// Follow-ups
-export const followups = sqliteTable("followups", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  contactName: text("contact_name").notNull(),
-  contactPhone: text("contact_phone"),
-  contactEmail: text("contact_email"),
-  dealId: integer("deal_id").references(() => deals.id),
-  note: text("note"),
-  dueDate: text("due_date").notNull(),
-  status: text("status").notNull().default("pending"),
-  completedAt: text("completed_at"),
-  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
-}, (table) => [
-  index("idx_followups_due_date").on(table.dueDate),
-  index("idx_followups_status").on(table.status),
 ]);
 
 // Underwriting Analyses

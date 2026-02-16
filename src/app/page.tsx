@@ -470,53 +470,6 @@ function WatchlistSection() {
   );
 }
 
-/* ── Due Today ── */
-function DueTodaySection() {
-  const [items, setItems] = useState<Array<{ id: number; contactName: string; dueDate: string; note: string | null; dealTenantName: string | null; dealPropertyAddress: string | null }>>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/followups?status=pending")
-      .then(r => r.json())
-      .then((data: Array<{ id: number; contactName: string; dueDate: string; note: string | null; status: string; dealTenantName: string | null; dealPropertyAddress: string | null }>) => {
-        const today = new Date().toISOString().slice(0, 10);
-        const urgent = data.filter(f => f.dueDate <= today).slice(0, 5);
-        setItems(urgent);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
-
-  if (loading || items.length === 0) return null;
-
-  const today = new Date().toISOString().slice(0, 10);
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold text-white">📌 Due Today</h2>
-        <Link href="/followups" className="text-xs text-accent hover:text-accent/80 transition">View all →</Link>
-      </div>
-      <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl divide-y divide-zinc-700/50 overflow-hidden">
-        {items.map(f => (
-          <div key={f.id} className="px-5 py-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-white">{f.contactName}</p>
-                {f.dealTenantName && <p className="text-xs text-zinc-500 mt-0.5">{f.dealTenantName}{f.dealPropertyAddress ? ` · ${f.dealPropertyAddress}` : ""}</p>}
-                {f.note && <p className="text-xs text-zinc-400 mt-0.5">{f.note}</p>}
-              </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${f.dueDate < today ? "bg-red-500/15 text-red-400" : "bg-accent/15 text-accent"}`}>
-                {f.dueDate < today ? "Overdue" : "Today"}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /* ── Dashboard ── */
 export default function Dashboard() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -550,7 +503,6 @@ export default function Dashboard() {
       <div>
         <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
       </div>
-      <DueTodaySection />
       <Leaderboard entries={leaderboard} />
       <SearchSection watchedKeys={watchedKeys} onWatched={handleWatched} />
       <WatchlistSection key={watchlistVersion} />
