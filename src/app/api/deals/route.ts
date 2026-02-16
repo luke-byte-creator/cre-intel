@@ -1,11 +1,12 @@
 import { db, schema } from "@/db";
+import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth(req);
   if (auth instanceof Response) return auth;
-  const results = await db.select().from(schema.deals);
+  const results = await db.select().from(schema.deals).where(eq(schema.deals.userId, auth.user.id));
   const stageOrder: Record<string, number> = { prospect: 0, ongoing: 1, closed: 2 };
   results.sort((a, b) => {
     const so = (stageOrder[a.stage] ?? 99) - (stageOrder[b.stage] ?? 99);
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await db.insert(schema.deals).values({
+    userId: auth.user.id,
     tenantName: body.tenantName as string,
     propertyAddress: (body.propertyAddress as string) || "",
     stage: (body.stage as string) || "prospect",

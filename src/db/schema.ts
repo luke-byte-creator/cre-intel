@@ -141,6 +141,9 @@ export const inquiries = sqliteTable("inquiries", {
   source: text("source").default("form"),
   submittedBy: text("submitted_by").default("tenant"),
   status: text("status").default("new"),
+  claimedByUserId: integer("claimed_by_user_id").references(() => users.id),
+  claimedByName: text("claimed_by_name"),
+  claimedAt: text("claimed_at"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_inquiries_status").on(table.status),
@@ -149,6 +152,7 @@ export const inquiries = sqliteTable("inquiries", {
 // Deals (pipeline tracker) — stages: prospect, ongoing, closed
 export const deals = sqliteTable("deals", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").references(() => users.id),
   tenantName: text("tenant_name").notNull(),
   tenantCompany: text("tenant_company"),
   tenantEmail: text("tenant_email"),
@@ -478,6 +482,7 @@ export const industrialVacancies = sqliteTable("industrial_vacancies", {
 // Pipeline Todos
 export const pipelineTodos = sqliteTable("pipeline_todos", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").references(() => users.id),
   dealId: integer("deal_id").references(() => deals.id),
   text: text("text").notNull(),
   completed: integer("completed").default(0),

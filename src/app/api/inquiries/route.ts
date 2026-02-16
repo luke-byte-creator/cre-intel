@@ -20,7 +20,14 @@ export async function GET(req: NextRequest) {
   const sfMax = req.nextUrl.searchParams.get("sfMax");
 
   const conditions = [];
-  if (status) conditions.push(eq(schema.inquiries.status, status));
+  if (status === "new") {
+    // "New" only shows inquiries from the last 7 days that haven't been claimed
+    conditions.push(eq(schema.inquiries.status, "new"));
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    conditions.push(sql`${schema.inquiries.createdAt} >= ${sevenDaysAgo}`);
+  } else if (status) {
+    conditions.push(eq(schema.inquiries.status, status));
+  }
   if (search) {
     const s = `%${search}%`;
     conditions.push(or(

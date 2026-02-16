@@ -18,6 +18,8 @@ interface Inquiry {
   submittedBy: string | null;
   assetTypePreference: string | null;
   status: string | null;
+  claimedByName: string | null;
+  claimedAt: string | null;
   createdAt: string;
 }
 
@@ -124,8 +126,13 @@ export default function InquiriesPage() {
         }),
       });
 
-      // Update inquiry status to "pipeline"
-      await updateStatus(inq.id, "pipeline");
+      // Update inquiry status to "pipeline" and claim it
+      await fetch(`/api/inquiries/${inq.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "pipeline", claim: true }),
+      });
+      load();
     } finally {
       setMoving(null);
     }
@@ -419,6 +426,9 @@ export default function InquiriesPage() {
                   >
                     {(inq.status || "new").replace("_", " ")}
                   </span>
+                  {inq.claimedByName && (
+                    <span className="text-[11px] text-emerald-400">→ {inq.claimedByName}&apos;s pipeline</span>
+                  )}
                   <span className="text-[11px] text-muted">
                     {new Date(inq.createdAt).toLocaleDateString()}
                   </span>

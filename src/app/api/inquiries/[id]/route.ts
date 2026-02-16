@@ -33,6 +33,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // Handle claim — tag the inquiry with who moved it to pipeline
+  if (body.claim) {
+    (updates as Record<string, unknown>).claimedByUserId = auth.user.id;
+    (updates as Record<string, unknown>).claimedByName = auth.user.name;
+    (updates as Record<string, unknown>).claimedAt = new Date().toISOString();
+  }
+
   const result = await db.update(schema.inquiries).set(updates).where(eq(schema.inquiries.id, numId)).returning();
   if (!result.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(result[0]);

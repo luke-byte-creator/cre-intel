@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
     })
     .from(schema.pipelineTodos)
     .leftJoin(schema.deals, eq(schema.pipelineTodos.dealId, schema.deals.id))
+    .where(eq(schema.pipelineTodos.userId, auth.user.id))
     .orderBy(asc(schema.pipelineTodos.completed), asc(schema.pipelineTodos.sortOrder));
 
   if (completedFilter === "true") {
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
 
   const now = new Date().toISOString();
   const result = await db.insert(schema.pipelineTodos).values({
+    userId: auth.user.id,
     dealId,
     text: body.text as string,
     sortOrder: nextOrder,
