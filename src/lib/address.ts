@@ -14,6 +14,7 @@ const STREET_TYPES: Record<string, string> = {
   'AV': 'AVENUE',
   'DR': 'DRIVE',
   'BLVD': 'BOULEVARD',
+  'BLV': 'BOULEVARD',
   'RD': 'ROAD',
   'CRES': 'CRESCENT',
   'CR': 'CRESCENT',
@@ -51,6 +52,7 @@ const STREET_TYPES: Record<string, string> = {
   'PASS': 'PASS',
   'CLO': 'CLOSE',
   'CL': 'CLOSE',
+  'COMM': 'COMMON',
 };
 
 // Direction expansions
