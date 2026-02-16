@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { track } from "@/lib/track";
 
 const SALE_KEY_REQUIRED = new Set(['propertyType', 'saleDate', 'salePrice']);
 const SALE_KEY_GROUPS: Record<string, string> = {
@@ -267,6 +268,7 @@ export default function CompEditModal({ comp, type, onSave, onDelete, onClose }:
 
   async function handleSave() {
     setSaving(true);
+    track(isCreate ? "create" : "edit", "comps", { type, compId: comp.id });
     const updates: Record<string, unknown> = {};
     for (const f of fields) {
       const val = form[f.key];

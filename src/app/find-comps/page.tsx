@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { track } from "@/lib/track";
 
 interface Comp {
   id: number;
@@ -98,6 +99,7 @@ export default function FindCompsPage() {
   async function handleSearch() {
     setLoading(true);
     setSearched(true);
+    track("search", "find-comps", { type, propertyType, city, targetSF, sizeTolerance, dateRange });
     setSelected(new Set());
     const params = new URLSearchParams({
       type,

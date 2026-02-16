@@ -4,11 +4,35 @@ import crypto from "crypto";
 import path from "path";
 import { verifyPassword } from "@/lib/auth";
 import { getAccessLevel } from "@/lib/credit-service";
+import { getClientIp } from "@/lib/security";
+
+// Rate limit: 5 attempts per 15 minutes per IP
+const loginAttempts = new Map<string, number[]>();
+function checkLoginRate(ip: string): boolean {
+  const now = Date.now();
+  const window = 15 * 60 * 1000;
+  const attempts = (loginAttempts.get(ip) || []).filter(t => now - t < window);
+  if (attempts.length >= 5) { loginAttempts.set(ip, attempts); return false; }
+  attempts.push(now);
+  loginAttempts.set(ip, attempts);
+  if (loginAttempts.size > 500) {
+    for (const [k, v] of loginAttempts) {
+      const f = v.filter(t => now - t < window);
+      if (f.length === 0) loginAttempts.delete(k); else loginAttempts.set(k, f);
+    }
+  }
+  return true;
+}
 
 const DB_PATH = path.join(process.cwd(), "data", "cre-intel.db");
 
 export async function POST(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    if (!checkLoginRate(ip)) {
+      return NextResponse.json({ ok: false, error: "Too many login attempts. Try again in 15 minutes." }, { status: 429 });
+    }
+
     const { email, password } = await request.json();
     if (!email || !password) {
       return NextResponse.json({ ok: false, error: "Email and password required" }, { status: 400 });

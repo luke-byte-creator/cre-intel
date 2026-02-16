@@ -12,6 +12,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "name, email, and password required" }, { status: 400 });
     }
 
+    // Registration locked to @cbre.com emails only
+    if (!email.toLowerCase().endsWith("@cbre.com")) {
+      return NextResponse.json({ error: "Registration is restricted to authorized email domains" }, { status: 403 });
+    }
+
     const existing = db.select().from(schema.users).where(eq(schema.users.email, email)).all();
     if (existing.length > 0) {
       return NextResponse.json({ error: "Email already registered" }, { status: 409 });

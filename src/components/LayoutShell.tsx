@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import AuthGuard from "@/components/AuthGuard";
+import TrackPageView from "@/components/TrackPageView";
 
 const PUBLIC_PATHS = ["/login", "/inquire"];
 
@@ -16,6 +17,7 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
 
   return (
     <AuthGuard>
+      <TrackPageView />
       <Sidebar />
       <main className="md:ml-60 min-h-screen">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-16 md:pt-8">

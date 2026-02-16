@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { track } from "@/lib/track";
 
 /* ── Types ── */
 interface CompResult {
@@ -132,6 +133,7 @@ export default function SearchPage() {
   const search = useCallback(async (q: string) => {
     if (q.length < 2) { setResults(null); setComps([]); return; }
     setLoading(true);
+    track("search", "search", { query: q, tab });
     try {
       const tabType = tab === "comps" ? "comps" : tab;
       if (tab === "comps") {

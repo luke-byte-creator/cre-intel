@@ -1,17 +1,19 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import SalesPage from "@/app/sales/page";
-import LeasesPage from "@/app/leases/page";
+import React, { useState, useEffect, useCallback } from "react";
+import CompEditModal from "@/components/CompEditModal";
+import { track } from "@/lib/track";
 
-interface FindComp {
+interface Comp {
   id: number;
   type: string;
   propertyType: string | null;
+  investmentType: string | null;
   propertyName: string | null;
   address: string;
   unit: string | null;
   city: string | null;
+  province: string | null;
   seller: string | null;
   purchaser: string | null;
   landlord: string | null;
@@ -19,45 +21,60 @@ interface FindComp {
   saleDate: string | null;
   salePrice: number | null;
   pricePSF: number | null;
+  pricePerAcre: number | null;
   netRentPSF: number | null;
   annualRent: number | null;
   areaSF: number | null;
-  leaseStart: string | null;
-  leaseExpiry: string | null;
-  termMonths: number | null;
-  capRate: number | null;
-  noi: number | null;
-  yearBuilt: number | null;
-  zoning: string | null;
-  landAcres: number | null;
-  landSF: number | null;
-  comments: string | null;
-  source: string | null;
-  investmentType: string | null;
-  constructionClass: string | null;
+  officeSF: number | null;
   ceilingHeight: number | null;
   loadingDocks: number | null;
   driveInDoors: number | null;
+  landAcres: number | null;
+  landSF: number | null;
+  yearBuilt: number | null;
+  zoning: string | null;
+  capRate: number | null;
+  noi: number | null;
+  leaseStart: string | null;
+  leaseExpiry: string | null;
+  termMonths: number | null;
+  comments: string | null;
+  source: string | null;
+  rollNumber: string | null;
+  pptDescriptor: string | null;
+  armsLength: boolean | null;
+  portfolio: string | null;
+  constructionClass: string | null;
   numUnits: number | null;
-  officeSF: number | null;
+  numBuildings: number | null;
+  numStories: number | null;
   vacancyRate: number | null;
   pricePerUnit: number | null;
-  relevanceScore: number;
+  opexRatio: number | null;
+  stabilizedNOI: number | null;
+  stabilizedCapRate: number | null;
+  isRenewal: boolean | null;
+  rentSteps: string | null;
+  leaseType: string | null;
+  improvementAllowance: string | null;
+  freeRentPeriod: string | null;
+  fixturingPeriod: string | null;
+  operatingCost: number | null;
+  researchedUnavailable: number | null;
+  researchedAt: string | null;
+  researchedBy: number | null;
+  isResearched?: boolean;
+  isAutoResearched?: boolean;
+  researchedExpired?: boolean;
 }
 
 const PROPERTY_TYPES = ["All", "Retail", "Office", "Industrial", "Multifamily", "Land", "Investment", "Other"];
-const SIZE_TOLERANCES = [
-  { label: "±25%", value: "25" },
-  { label: "±50%", value: "50" },
-  { label: "±100%", value: "100" },
-  { label: "Any", value: "any" },
-];
 const DATE_RANGES = [
+  { label: "All time", value: "all" },
   { label: "Last 1 year", value: "1" },
   { label: "Last 2 years", value: "2" },
   { label: "Last 3 years", value: "3" },
   { label: "Last 5 years", value: "5" },
-  { label: "All time", value: "all" },
 ];
 
 function fmtDate(d: string | null) {
@@ -76,87 +93,130 @@ function fmtNum(n: number | null) {
   if (n == null) return "—";
   return n.toLocaleString("en-US");
 }
+function fmtCap(n: number | null) {
+  if (n == null) return "—";
+  return n.toFixed(2) + "%";
+}
 
 export default function TransactionsPage() {
   const [type, setType] = useState<"Sale" | "Lease">("Sale");
-  // Find comps state
-  const [fcPropertyType, setFcPropertyType] = useState("All");
-  const [fcCity, setFcCity] = useState("All");
+  const [search, setSearch] = useState("");
+  const [propertyType, setPropertyType] = useState("All");
+  const [city, setCity] = useState("All");
   const [cities, setCities] = useState<{ city: string; count: number }[]>([]);
-  const [targetSF, setTargetSF] = useState("");
-  const [sizeTolerance, setSizeTolerance] = useState("50");
-  const [dateRange, setDateRange] = useState("3");
-  const [fcSearch, setFcSearch] = useState("");
+  const [dateRange, setDateRange] = useState("all");
   const [researchFilter, setResearchFilter] = useState<"all" | "researched" | "unresearched" | "transfer">("all");
-  const [fcResults, setFcResults] = useState<FindComp[]>([]);
-  const [fcTotal, setFcTotal] = useState(0);
-  const [fcLoading, setFcLoading] = useState(false);
-  const [fcSearched, setFcSearched] = useState(false);
-  const [fcExpanded, setFcExpanded] = useState<number | null>(null);
-  const [fcSelected, setFcSelected] = useState<Set<number>>(new Set());
-  const [fcCopied, setFcCopied] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState("All");
+  const [sortField, setSortField] = useState("saleDate");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const [comps, setComps] = useState<Comp[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [copied, setCopied] = useState(false);
+  const [editingComp, setEditingComp] = useState<Comp | null>(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 50;
 
   useEffect(() => {
     fetch("/api/comps/cities").then(r => r.json()).then(setCities).catch(() => {});
   }, []);
 
-  async function handleSearch() {
-    setFcLoading(true);
-    setFcSearched(true);
-    setFcSelected(new Set());
+  const fetchComps = useCallback(async () => {
+    setLoading(true);
+    // Map frontend sort fields to API column names
+    const sortColMap: Record<string, string> = {
+      saleDate: "sale_date", salePrice: "sale_price", pricePSF: "price_psf",
+      address: "address", city: "city", areaSF: "area_sf",
+      netRentPSF: "net_rent_psf", leaseStart: "lease_start", leaseExpiry: "lease_expiry",
+    };
     const params = new URLSearchParams({
       type,
-      propertyType: fcPropertyType,
-      city: fcCity,
-      targetSF: targetSF || "0",
-      sizeTolerance,
-      dateRange,
+      page: String(page - 1), // API is 0-indexed
+      limit: String(pageSize),
+      sortBy: sortColMap[sortField] || "sale_date",
+      sortDir,
     });
-    try {
-      const res = await fetch(`/api/comps/find?${params}`);
-      const json = await res.json();
-      setFcResults(json.data || []);
-      setFcTotal(json.total || 0);
-    } catch {
-      setFcResults([]);
-      setFcTotal(0);
+    if (search) params.set("search", search);
+    if (propertyType !== "All") params.set("propertyType", propertyType);
+    if (city !== "All") params.set("city", city);
+    if (dateRange !== "all") {
+      const years = parseInt(dateRange);
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - years);
+      params.set("dateFrom", cutoff.toISOString().split("T")[0]);
     }
-    setFcLoading(false);
+    if (researchFilter === "researched") params.set("researchedOnly", "true");
+    else if (researchFilter === "unresearched") params.set("hideResearched", "true");
+    if (researchFilter === "transfer") params.set("source", "transfer");
+    else if (sourceFilter !== "All") params.set("source", sourceFilter);
+
+    try {
+      const res = await fetch(`/api/comps?${params}`);
+      const json = await res.json();
+      setComps(json.data || json);
+      setTotal(json.total || (json.data || json).length);
+    } catch {
+      setComps([]);
+      setTotal(0);
+    }
+    setLoading(false);
+  }, [type, page, sortField, sortDir, search, propertyType, city, dateRange, researchFilter, sourceFilter]);
+
+  useEffect(() => {
+    fetchComps();
+  }, [fetchComps]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+    setSelected(new Set());
+  }, [type, search, propertyType, city, dateRange, researchFilter, sourceFilter]);
+
+  function handleSort(field: string) {
+    if (sortField === field) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir("desc");
+    }
   }
 
-  function toggleFcSelect(id: number) {
-    setFcSelected(prev => {
+  function toggleSelect(id: number) {
+    setSelected(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   }
 
-  function toggleFcAll() {
-    if (fcSelected.size === fcResults.length) setFcSelected(new Set());
-    else setFcSelected(new Set(fcResults.map(r => r.id)));
+  function toggleAll() {
+    if (selected.size === comps.length) setSelected(new Set());
+    else setSelected(new Set(comps.map(r => r.id)));
   }
 
-  function copyFcSelected() {
-    const sel = fcResults.filter(r => fcSelected.has(r.id));
+  function copySelected() {
+    const sel = comps.filter(r => selected.has(r.id));
     if (!sel.length) return;
     let header: string;
     let rows: string[];
     if (type === "Sale") {
-      header = "Address\tCity\tDate\tPrice\tPrice/SF\tSize (SF)\tProperty Type\tVendor\tPurchaser\tRelevance";
+      header = "Address\tCity\tDate\tPrice\tPrice/SF\tSize (SF)\tProperty Type\tVendor\tPurchaser\tSource";
       rows = sel.map(r => [
         r.address + (r.unit ? ` ${r.unit}` : ""), r.city || "", r.saleDate ? fmtDate(r.saleDate) : "",
         r.salePrice != null ? fmtPrice(r.salePrice) : "", r.pricePSF != null ? fmtPSF(r.pricePSF) : "",
         r.areaSF != null ? fmtNum(r.areaSF) : "", r.propertyType || "", r.seller || "", r.purchaser || "",
-        Math.round(r.relevanceScore * 100) + "%",
+        r.source || "",
       ].join("\t"));
     } else {
-      header = "Address\tCity\tTenant\tRent/SF\tSize (SF)\tLease Start\tExpiry\tProperty Type\tRelevance";
+      header = "Address\tCity\tTenant\tRent/SF\tSize (SF)\tLease Start\tExpiry\tProperty Type\tLandlord\tSource";
       rows = sel.map(r => [
         r.address + (r.unit ? ` ${r.unit}` : ""), r.city || "", r.tenant || "",
         r.netRentPSF != null ? fmtPSF(r.netRentPSF) : "", r.areaSF != null ? fmtNum(r.areaSF) : "",
         r.leaseStart ? fmtDate(r.leaseStart) : "", r.leaseExpiry ? fmtDate(r.leaseExpiry) : "",
-        r.propertyType || "", Math.round(r.relevanceScore * 100) + "%",
+        r.propertyType || "", r.landlord || "", r.source || "",
       ].join("\t"));
     }
     const text = header + "\n" + rows.join("\n");
@@ -169,333 +229,455 @@ export default function TransactionsPage() {
     const blob = new Blob([html], { type: "text/html" });
     const textBlob = new Blob([text], { type: "text/plain" });
     navigator.clipboard.write([new ClipboardItem({ "text/html": blob, "text/plain": textBlob })]);
-    setFcCopied(true);
-    setTimeout(() => setFcCopied(false), 2000);
+    setCopied(true);
+    track("copy", "comps", { count: sel.length, type });
+    setTimeout(() => setCopied(false), 2000);
   }
 
+  async function handleFlagUnavailable(compId: number) {
+    try {
+      await fetch(`/api/comps/${compId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ researchedUnavailable: 1 }),
+      });
+      track("edit", "comps", { action: "flag_unavailable", compId });
+      fetchComps();
+    } catch {}
+  }
+
+  const SortIcon = ({ field }: { field: string }) => (
+    <span className="ml-1 text-[10px] opacity-50">{sortField === field ? (sortDir === "asc" ? "▲" : "▼") : ""}</span>
+  );
+
   const selectCls = "bg-card border border-card-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent";
-  const inputCls = "bg-card border border-card-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-accent w-full";
+  const totalPages = Math.ceil(total / pageSize);
+
+  // Determine research status display
+  function researchDot(comp: Comp) {
+    if (comp.isResearched || comp.researchedUnavailable) {
+      return <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" title="Researched" />;
+    }
+    return <span className="w-2 h-2 rounded-full bg-red-500/60 inline-block" title="Unresearched" />;
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Header with type toggle on left */}
+    <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center gap-4 flex-wrap">
+        <h1 className="text-2xl font-bold text-foreground">Transactions</h1>
         <div className="flex rounded-lg overflow-hidden border border-card-border">
           {(["Sale", "Lease"] as const).map(t => (
-            <button key={t} onClick={() => { setType(t); setFcResults([]); setFcSearched(false); }}
+            <button key={t} onClick={() => setType(t)}
               className={`px-5 py-2 text-sm font-medium transition-all ${type === t ? "bg-accent text-white" : "bg-card text-muted hover:text-foreground"}`}
             >{t === "Sale" ? "Sales" : "Leases"}</button>
           ))}
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Transactions</h1>
+        <span className="text-sm text-muted ml-auto">{total.toLocaleString()} records</span>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-card border border-card-border rounded-xl p-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="col-span-2 sm:col-span-3 lg:col-span-6">
+            <input type="text" placeholder="Search address, vendor, purchaser, tenant..."
+              value={search} onChange={e => setSearch(e.target.value)}
+              className="w-full bg-background border border-card-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-muted/50 focus:outline-none focus:ring-1 focus:ring-accent" />
+          </div>
+          <div>
+            <label className="block text-[10px] text-muted mb-1 font-medium uppercase tracking-wider">Property Type</label>
+            <select value={propertyType} onChange={e => setPropertyType(e.target.value)} className={selectCls + " w-full"}>
+              {PROPERTY_TYPES.map(pt => <option key={pt} value={pt}>{pt}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] text-muted mb-1 font-medium uppercase tracking-wider">City</label>
+            <select value={city} onChange={e => setCity(e.target.value)} className={selectCls + " w-full"}>
+              <option value="All">All Cities</option>
+              {cities.map(c => <option key={c.city} value={c.city}>{c.city} ({c.count})</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] text-muted mb-1 font-medium uppercase tracking-wider">Date Range</label>
+            <select value={dateRange} onChange={e => setDateRange(e.target.value)} className={selectCls + " w-full"}>
+              {DATE_RANGES.map(dr => <option key={dr.value} value={dr.value}>{dr.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] text-muted mb-1 font-medium uppercase tracking-wider">Research Status</label>
+            <select value={researchFilter} onChange={e => { setResearchFilter(e.target.value as any); track("filter", "comps", { filter: "research", value: e.target.value }); }} className={selectCls + " w-full"}>
+              <option value="all">All</option>
+              <option value="researched">Researched Only</option>
+              <option value="unresearched">Unresearched Only</option>
+              <option value="transfer">Transfer List Only</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Find Comps */}
+      {/* Bulk actions */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3">
+          <button onClick={copySelected}
+            className="bg-accent/15 text-accent hover:bg-accent/25 px-4 py-2 rounded-lg text-sm font-medium transition">
+            {copied ? "✓ Copied!" : `Copy ${selected.size} Selected`}
+          </button>
+        </div>
+      )}
+
+      {/* Table */}
       <div className="bg-card border border-card-border rounded-xl overflow-hidden">
-        <div className="px-5 py-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-              <div className="xl:col-span-full">
-                <label className="block text-xs text-muted mb-1.5 font-medium">Search</label>
-                <input type="text" placeholder="Address, vendor, purchaser, tenant..." value={fcSearch}
-                  onChange={e => setFcSearch(e.target.value)} className={inputCls} />
-              </div>
-              <div>
-                <label className="block text-xs text-muted mb-1.5 font-medium">Property Type</label>
-                <select value={fcPropertyType} onChange={e => setFcPropertyType(e.target.value)} className={selectCls + " w-full"}>
-                  {PROPERTY_TYPES.map(pt => <option key={pt} value={pt}>{pt}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-muted mb-1.5 font-medium">City</label>
-                <select value={fcCity} onChange={e => setFcCity(e.target.value)} className={selectCls + " w-full"}>
-                  <option value="All">All Cities</option>
-                  {cities.map(c => <option key={c.city} value={c.city}>{c.city} ({c.count})</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-muted mb-1.5 font-medium">Target Size (SF)</label>
-                <input type="number" placeholder="e.g. 5000" value={targetSF}
-                  onChange={e => setTargetSF(e.target.value)} className={inputCls} />
-              </div>
-              <div>
-                <label className="block text-xs text-muted mb-1.5 font-medium">Size Tolerance</label>
-                <select value={sizeTolerance} onChange={e => setSizeTolerance(e.target.value)} className={selectCls + " w-full"}>
-                  {SIZE_TOLERANCES.map(st => <option key={st.value} value={st.value}>{st.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-muted mb-1.5 font-medium">Date Range</label>
-                <select value={dateRange} onChange={e => setDateRange(e.target.value)} className={selectCls + " w-full"}>
-                  {DATE_RANGES.map(dr => <option key={dr.value} value={dr.value}>{dr.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-muted mb-1.5 font-medium">Research Status</label>
-                <select value={researchFilter} onChange={e => setResearchFilter(e.target.value as "all" | "researched" | "unresearched" | "transfer")} className={selectCls + " w-full"}>
-                  <option value="all">All</option>
-                  <option value="researched">Researched Only</option>
-                  <option value="unresearched">Unresearched Only</option>
-                  <option value="transfer">Transfer List Only</option>
-                </select>
-              </div>
-            </div>
-            <div className="mt-4 flex items-center gap-3">
-              <button onClick={handleSearch} disabled={fcLoading}
-                className="bg-accent hover:bg-accent/90 text-white font-medium px-6 py-2.5 rounded-lg text-sm transition-all disabled:opacity-50">
-                {fcLoading ? "Searching…" : "Find Comps"}
-              </button>
-              {fcSearched && !fcLoading && (
-                <span className="text-sm text-muted">
-                  {fcResults.length} result{fcResults.length !== 1 ? "s" : ""}{fcTotal > 50 ? ` (showing top 50 of ${fcTotal})` : ""}
-                </span>
-              )}
-            </div>
-
-            {/* Find comps results */}
-            {fcResults.length > 0 && (
-              <div className="mt-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <label className="flex items-center gap-2 text-sm text-muted cursor-pointer">
-                    <input type="checkbox" checked={fcSelected.size === fcResults.length && fcResults.length > 0}
-                      onChange={toggleFcAll} className="accent-accent" />
-                    Select All
-                  </label>
-                  {fcSelected.size > 0 && (
-                    <button onClick={copyFcSelected}
-                      className="bg-accent/15 text-accent hover:bg-accent/25 px-3 py-1.5 rounded-lg text-xs font-medium transition-all">
-                      {fcCopied ? "✓ Copied!" : `Copy ${fcSelected.size} Selected`}
-                    </button>
-                  )}
-                </div>
-                <div className="hidden md:block overflow-x-auto card-elevated">
-                  <table className="data-table">
-                    <thead>
-                      <tr className="border-b border-card-border bg-card-hover/50">
-                        <th className="w-8 px-3 py-3"><span className="sr-only">Select</span></th>
-                        <th className="text-left px-3 py-3 font-medium text-muted text-xs">Address</th>
-                        <th className="text-left px-3 py-3 font-medium text-muted text-xs">City</th>
-                        {type === "Sale" ? (
-                          <>
-                            <th className="text-left px-3 py-3 font-medium text-muted text-xs">Date</th>
-                            <th className="text-right px-3 py-3 font-medium text-muted text-xs">Price</th>
-                            <th className="text-right px-3 py-3 font-medium text-muted text-xs">Price/SF</th>
-                          </>
-                        ) : (
-                          <>
-                            <th className="text-left px-3 py-3 font-medium text-muted text-xs">Tenant</th>
-                            <th className="text-right px-3 py-3 font-medium text-muted text-xs">Rent/SF</th>
-                          </>
-                        )}
-                        <th className="text-right px-3 py-3 font-medium text-muted text-xs">Size SF</th>
-                        {type === "Sale" ? (
-                          <>
-                            <th className="text-left px-3 py-3 font-medium text-muted text-xs">Type</th>
-                            <th className="text-left px-3 py-3 font-medium text-muted text-xs">Vendor</th>
-                            <th className="text-left px-3 py-3 font-medium text-muted text-xs">Purchaser</th>
-                          </>
-                        ) : (
-                          <>
-                            <th className="text-left px-3 py-3 font-medium text-muted text-xs">Start</th>
-                            <th className="text-left px-3 py-3 font-medium text-muted text-xs">Expiry</th>
-                            <th className="text-left px-3 py-3 font-medium text-muted text-xs">Type</th>
-                          </>
-                        )}
-                        <th className="text-right px-3 py-3 font-medium text-muted text-xs w-24">Relevance</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fcResults.map(r => (
-                        <React.Fragment key={r.id}>
-                          <tr className={`border-b border-card-border/50 hover:bg-card-hover/30 cursor-pointer transition-colors ${fcExpanded === r.id ? "bg-card-hover/20" : ""}`}>
-                            <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
-                              <input type="checkbox" checked={fcSelected.has(r.id)} onChange={() => toggleFcSelect(r.id)} className="accent-accent" />
-                            </td>
-                            <td className="px-3 py-2.5 font-medium text-foreground" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>
-                              {r.address}{r.unit ? ` ${r.unit}` : ""}
-                            </td>
-                            <td className="px-3 py-2.5 text-muted" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{r.city || "—"}</td>
-                            {type === "Sale" ? (
-                              <>
-                                <td className="px-3 py-2.5 text-muted" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{fmtDate(r.saleDate)}</td>
-                                <td className="px-3 py-2.5 text-right text-foreground" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{fmtPrice(r.salePrice)}</td>
-                                <td className="px-3 py-2.5 text-right text-muted" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{fmtPSF(r.pricePSF)}</td>
-                              </>
-                            ) : (
-                              <>
-                                <td className="px-3 py-2.5 text-muted" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{r.tenant || "—"}</td>
-                                <td className="px-3 py-2.5 text-right text-foreground" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{fmtPSF(r.netRentPSF)}</td>
-                              </>
-                            )}
-                            <td className="px-3 py-2.5 text-right text-muted" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{fmtNum(r.areaSF)}</td>
-                            {type === "Sale" ? (
-                              <>
-                                <td className="px-3 py-2.5 text-muted" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{r.propertyType || "—"}</td>
-                                <td className="px-3 py-2.5 text-muted truncate max-w-[120px]" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{r.seller || "—"}</td>
-                                <td className="px-3 py-2.5 text-muted truncate max-w-[120px]" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{r.purchaser || "—"}</td>
-                              </>
-                            ) : (
-                              <>
-                                <td className="px-3 py-2.5 text-muted" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{fmtDate(r.leaseStart)}</td>
-                                <td className="px-3 py-2.5 text-muted" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{fmtDate(r.leaseExpiry)}</td>
-                                <td className="px-3 py-2.5 text-muted" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>{r.propertyType || "—"}</td>
-                              </>
-                            )}
-                            <td className="px-3 py-2.5" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>
-                              <div className="flex items-center gap-2 justify-end">
-                                <div className="w-16 h-1.5 bg-card-border rounded-full overflow-hidden">
-                                  <div className="h-full rounded-full transition-all" style={{
-                                    width: `${Math.round(r.relevanceScore * 100)}%`,
-                                    backgroundColor: r.relevanceScore >= 0.8 ? "#10b981" : r.relevanceScore >= 0.5 ? "#f59e0b" : "#ef4444",
-                                  }} />
-                                </div>
-                                <span className="text-xs text-muted w-8 text-right">{Math.round(r.relevanceScore * 100)}%</span>
-                              </div>
-                            </td>
-                          </tr>
-                          {fcExpanded === r.id && (
-                            <tr className="bg-card-hover/10">
-                              <td colSpan={type === "Sale" ? 11 : 10} className="px-6 py-4">
-                                <FcExpandedDetail comp={r} type={type} />
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {/* Mobile cards for find comps */}
-                <div className="md:hidden space-y-3">
-                  {fcResults.map(r => (
-                    <div key={r.id} className="bg-card border border-card-border rounded-xl p-4">
-                      <div className="flex items-start gap-3">
-                        <input type="checkbox" checked={fcSelected.has(r.id)} onChange={() => toggleFcSelect(r.id)} className="accent-accent mt-1" />
-                        <div className="flex-1 min-w-0" onClick={() => setFcExpanded(fcExpanded === r.id ? null : r.id)}>
-                          <div className="flex items-center justify-between gap-2 mb-1">
-                            <p className="font-medium text-foreground text-sm truncate">{r.address}{r.unit ? ` ${r.unit}` : ""}</p>
-                            <span className="text-xs px-2 py-0.5 rounded-full whitespace-nowrap" style={{
-                              backgroundColor: r.relevanceScore >= 0.8 ? "rgba(16,185,129,0.15)" : r.relevanceScore >= 0.5 ? "rgba(245,158,11,0.15)" : "rgba(239,68,68,0.15)",
-                              color: r.relevanceScore >= 0.8 ? "#10b981" : r.relevanceScore >= 0.5 ? "#f59e0b" : "#ef4444",
-                            }}>{Math.round(r.relevanceScore * 100)}%</span>
-                          </div>
-                          <p className="text-xs text-muted">{r.city} · {r.propertyType || "—"} · {fmtNum(r.areaSF)} SF</p>
-                          {type === "Sale" ? (
-                            <p className="text-xs text-muted mt-1">{fmtDate(r.saleDate)} · {fmtPrice(r.salePrice)} · {fmtPSF(r.pricePSF)}</p>
-                          ) : (
-                            <p className="text-xs text-muted mt-1">{r.tenant || "—"} · {fmtPSF(r.netRentPSF)}</p>
-                          )}
-                          {fcExpanded === r.id && (
-                            <div className="mt-3 pt-3 border-t border-card-border">
-                              <FcExpandedDetail comp={r} type={type} />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {fcSearched && !fcLoading && fcResults.length === 0 && (
-              <div className="mt-4 bg-card border border-card-border rounded-xl p-12 text-center">
-                <p className="text-muted text-sm">No matching comps found. Try widening your search criteria.</p>
-              </div>
-            )}
-        </div>
-      </div>
-
-      {/* Full transaction table */}
-      <div>
-        {type === "Sale" ? (
-          <SalesPage
-            embedded
-            embeddedSearch={fcSearch}
-            embeddedPropertyType={fcPropertyType}
-            embeddedCity={fcCity}
-            embeddedSizeMin={targetSF && sizeTolerance !== "any" ? String(Math.round(Number(targetSF) * (1 - Number(sizeTolerance) / 100))) : ""}
-            embeddedSizeMax={targetSF && sizeTolerance !== "any" ? String(Math.round(Number(targetSF) * (1 + Number(sizeTolerance) / 100))) : ""}
-            embeddedDateFrom={dateRange !== "all" ? new Date(new Date().setFullYear(new Date().getFullYear() - Number(dateRange))).toISOString().split("T")[0] : ""}
-            embeddedResearchFilter={researchFilter === "transfer" ? "all" : researchFilter}
-            embeddedSource={researchFilter === "transfer" ? "transfer" : "All"}
-          />
+        {loading ? (
+          <div className="p-12 text-center text-muted text-sm">Loading…</div>
+        ) : comps.length === 0 ? (
+          <div className="p-12 text-center text-muted text-sm">No records match your filters.</div>
         ) : (
-          <LeasesPage
-            embedded
-            embeddedSearch={fcSearch}
-            embeddedPropertyType={fcPropertyType}
-            embeddedCity={fcCity}
-            embeddedSizeMin={targetSF && sizeTolerance !== "any" ? String(Math.round(Number(targetSF) * (1 - Number(sizeTolerance) / 100))) : ""}
-            embeddedSizeMax={targetSF && sizeTolerance !== "any" ? String(Math.round(Number(targetSF) * (1 + Number(sizeTolerance) / 100))) : ""}
-            embeddedDateFrom={dateRange !== "all" ? new Date(new Date().setFullYear(new Date().getFullYear() - Number(dateRange))).toISOString().split("T")[0] : ""}
-            embeddedResearchFilter={researchFilter === "transfer" ? "all" : researchFilter}
-            embeddedSource={researchFilter === "transfer" ? "transfer" : "All"}
-          />
+          <>
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-card-border bg-card-hover/50">
+                    <th className="w-8 px-3 py-3">
+                      <input type="checkbox" checked={selected.size === comps.length && comps.length > 0}
+                        onChange={toggleAll} className="accent-accent" />
+                    </th>
+                    <th className="text-left px-3 py-3 font-medium text-muted text-xs cursor-pointer select-none" onClick={() => handleSort("address")}>
+                      Address<SortIcon field="address" />
+                    </th>
+                    <th className="text-left px-3 py-3 font-medium text-muted text-xs cursor-pointer select-none" onClick={() => handleSort("city")}>
+                      City<SortIcon field="city" />
+                    </th>
+                    {type === "Sale" ? (
+                      <>
+                        <th className="text-left px-3 py-3 font-medium text-muted text-xs cursor-pointer select-none" onClick={() => handleSort("saleDate")}>
+                          Date<SortIcon field="saleDate" />
+                        </th>
+                        <th className="text-right px-3 py-3 font-medium text-muted text-xs cursor-pointer select-none" onClick={() => handleSort("salePrice")}>
+                          Price<SortIcon field="salePrice" />
+                        </th>
+                        <th className="text-right px-3 py-3 font-medium text-muted text-xs cursor-pointer select-none" onClick={() => handleSort("pricePSF")}>
+                          $/SF<SortIcon field="pricePSF" />
+                        </th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="text-left px-3 py-3 font-medium text-muted text-xs">Tenant</th>
+                        <th className="text-right px-3 py-3 font-medium text-muted text-xs cursor-pointer select-none" onClick={() => handleSort("netRentPSF")}>
+                          Rent/SF<SortIcon field="netRentPSF" />
+                        </th>
+                      </>
+                    )}
+                    <th className="text-right px-3 py-3 font-medium text-muted text-xs cursor-pointer select-none" onClick={() => handleSort("areaSF")}>
+                      Size SF<SortIcon field="areaSF" />
+                    </th>
+                    <th className="text-left px-3 py-3 font-medium text-muted text-xs">Type</th>
+                    {type === "Sale" ? (
+                      <>
+                        <th className="text-left px-3 py-3 font-medium text-muted text-xs">Vendor</th>
+                        <th className="text-left px-3 py-3 font-medium text-muted text-xs">Purchaser</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="text-left px-3 py-3 font-medium text-muted text-xs cursor-pointer select-none" onClick={() => handleSort("leaseStart")}>
+                          Start<SortIcon field="leaseStart" />
+                        </th>
+                        <th className="text-left px-3 py-3 font-medium text-muted text-xs cursor-pointer select-none" onClick={() => handleSort("leaseExpiry")}>
+                          Expiry<SortIcon field="leaseExpiry" />
+                        </th>
+                      </>
+                    )}
+                    <th className="text-center px-3 py-3 font-medium text-muted text-xs w-10" title="Research Status">⬤</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comps.map(r => (
+                    <React.Fragment key={r.id}>
+                      <tr className={`border-b border-card-border/50 hover:bg-card-hover/30 cursor-pointer transition-colors ${expanded === r.id ? "bg-card-hover/20" : ""}`}>
+                        <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} className="accent-accent" />
+                        </td>
+                        <td className="px-3 py-2.5 font-medium text-foreground" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
+                          {r.address}{r.unit ? ` ${r.unit}` : ""}
+                        </td>
+                        <td className="px-3 py-2.5 text-muted" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{r.city || "—"}</td>
+                        {type === "Sale" ? (
+                          <>
+                            <td className="px-3 py-2.5 text-muted" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{fmtDate(r.saleDate)}</td>
+                            <td className="px-3 py-2.5 text-right text-foreground" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{fmtPrice(r.salePrice)}</td>
+                            <td className="px-3 py-2.5 text-right text-muted" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{fmtPSF(r.pricePSF)}</td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-3 py-2.5 text-muted truncate max-w-[150px]" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{r.tenant || "—"}</td>
+                            <td className="px-3 py-2.5 text-right text-foreground" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{fmtPSF(r.netRentPSF)}</td>
+                          </>
+                        )}
+                        <td className="px-3 py-2.5 text-right text-muted" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{fmtNum(r.areaSF)}</td>
+                        <td className="px-3 py-2.5 text-muted" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{r.propertyType || "—"}</td>
+                        {type === "Sale" ? (
+                          <>
+                            <td className="px-3 py-2.5 text-muted truncate max-w-[120px]" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{r.seller || "—"}</td>
+                            <td className="px-3 py-2.5 text-muted truncate max-w-[120px]" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{r.purchaser || "—"}</td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-3 py-2.5 text-muted" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{fmtDate(r.leaseStart)}</td>
+                            <td className="px-3 py-2.5 text-muted" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{fmtDate(r.leaseExpiry)}</td>
+                          </>
+                        )}
+                        <td className="px-3 py-2.5 text-center" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>{researchDot(r)}</td>
+                      </tr>
+                      {expanded === r.id && (
+                        <tr className="bg-card-hover/10">
+                          <td colSpan={type === "Sale" ? 11 : 10} className="px-6 py-4">
+                            <ExpandedDetail comp={r} type={type} onEdit={() => setEditingComp(r)} onFlagUnavailable={handleFlagUnavailable} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="md:hidden divide-y divide-card-border">
+              {comps.map(r => (
+                <div key={r.id} className="p-4">
+                  <div className="flex items-start gap-3">
+                    <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} className="accent-accent mt-1" />
+                    <div className="flex-1 min-w-0" onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="font-medium text-foreground text-sm truncate flex-1">{r.address}{r.unit ? ` ${r.unit}` : ""}</p>
+                        {researchDot(r)}
+                      </div>
+                      <p className="text-xs text-muted">{r.city} · {r.propertyType || "—"} · {fmtNum(r.areaSF)} SF</p>
+                      {type === "Sale" ? (
+                        <p className="text-xs text-muted mt-1">{fmtDate(r.saleDate)} · {fmtPrice(r.salePrice)} · {fmtPSF(r.pricePSF)}</p>
+                      ) : (
+                        <p className="text-xs text-muted mt-1">{r.tenant || "—"} · {fmtPSF(r.netRentPSF)} · {fmtDate(r.leaseExpiry)}</p>
+                      )}
+                      {expanded === r.id && (
+                        <div className="mt-3 pt-3 border-t border-card-border">
+                          <ExpandedDetail comp={r} type={type} onEdit={() => setEditingComp(r)} onFlagUnavailable={handleFlagUnavailable} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-card-border">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                  className="text-sm text-muted hover:text-foreground disabled:opacity-30 transition">← Previous</button>
+                <span className="text-xs text-muted">Page {page} of {totalPages}</span>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                  className="text-sm text-muted hover:text-foreground disabled:opacity-30 transition">Next →</button>
+              </div>
+            )}
+          </>
         )}
       </div>
+
+      {/* Edit Modal */}
+      {editingComp && (
+        <CompEditModal
+          comp={editingComp as unknown as Record<string, unknown>}
+          type={type}
+          onClose={() => setEditingComp(null)}
+          onSave={() => { setEditingComp(null); fetchComps(); }}
+        />
+      )}
     </div>
   );
 }
 
-function FcExpandedDetail({ comp: r, type }: { comp: FindComp; type: string }) {
-  const Detail = ({ label, value }: { label: string; value: string | null | undefined }) => {
-    if (!value || value === "—") return null;
+const SALE_KEY_FIELDS = new Set(['propertyType', 'saleDate', 'salePrice', 'areaSF', 'landAcres', 'seller', 'purchaser']);
+const LEASE_KEY_FIELDS = new Set(['propertyType', 'tenant', 'areaSF', 'landlord', 'leaseStart', 'leaseExpiry', 'netRentPSF', 'annualRent']);
+
+function formatRentSteps(raw: string | null): string {
+  if (!raw) return "—";
+  try {
+    const steps = JSON.parse(raw);
+    if (Array.isArray(steps)) {
+      return steps.map((s: { rate?: number; annual?: number; date?: string }, i: number) => {
+        const date = s.date ? fmtDate(s.date) : `Step ${i + 1}`;
+        const rate = s.rate != null ? `$${s.rate.toFixed(2)}/SF` : "";
+        const annual = s.annual != null ? `($${s.annual.toLocaleString()}/yr)` : "";
+        return `${date}: ${rate} ${annual}`.trim();
+      }).join("\n");
+    }
+  } catch {}
+  return raw;
+}
+
+function ExpandedDetail({ comp: r, type, onEdit, onFlagUnavailable }: { comp: Comp; type: string; onEdit: () => void; onFlagUnavailable: (id: number) => void }) {
+  const keyFields = type === "Sale" ? SALE_KEY_FIELDS : LEASE_KEY_FIELDS;
+
+  // Show all fields always — empty ones show "—" so users know what's available
+  // Key fields get a colored indicator so users know what earns credits
+  const Field = ({ label, value, fieldKey }: { label: string; value: string | null | undefined; fieldKey?: string }) => {
+    const isKey = fieldKey ? keyFields.has(fieldKey) : false;
+    const isEmpty = !value || value === "—";
     return (
       <div>
-        <span className="text-xs text-muted">{label}</span>
-        <p className="text-sm text-foreground">{value}</p>
+        <span className="text-[10px] text-muted uppercase tracking-wider">
+          {label}
+          {isKey && <span className={`ml-1 ${isEmpty ? "text-amber-400" : "text-emerald-400"}`} title={isEmpty ? "Key field — fill to earn credit" : "Key field ✓"}>★</span>}
+        </span>
+        <p className={`text-sm ${isEmpty ? (isKey ? "text-amber-400/40" : "text-muted/40") : "text-foreground"}`}>{value || "—"}</p>
       </div>
     );
   };
 
+  const rentStepsFormatted = type === "Lease" ? formatRentSteps(r.rentSteps) : null;
+
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-3">
-      <Detail label="Address" value={r.address + (r.unit ? ` ${r.unit}` : "")} />
-      <Detail label="City" value={r.city} />
-      <Detail label="Property Type" value={r.propertyType} />
-      <Detail label="Property Name" value={r.propertyName} />
-      {type === "Sale" && (
-        <>
-          <Detail label="Sale Date" value={fmtDate(r.saleDate)} />
-          <Detail label="Sale Price" value={fmtPrice(r.salePrice)} />
-          <Detail label="Price/SF" value={fmtPSF(r.pricePSF)} />
-          <Detail label="Vendor" value={r.seller} />
-          <Detail label="Purchaser" value={r.purchaser} />
-          <Detail label="Cap Rate" value={r.capRate != null ? r.capRate.toFixed(2) + "%" : null} />
-          <Detail label="NOI" value={r.noi != null ? fmtPrice(r.noi) : null} />
-        </>
-      )}
-      {type === "Lease" && (
-        <>
-          <Detail label="Tenant" value={r.tenant} />
-          <Detail label="Landlord" value={r.landlord} />
-          <Detail label="Net Rent/SF" value={fmtPSF(r.netRentPSF)} />
-          <Detail label="Annual Rent" value={r.annualRent != null ? fmtPrice(r.annualRent) : null} />
-          <Detail label="Lease Start" value={fmtDate(r.leaseStart)} />
-          <Detail label="Lease Expiry" value={fmtDate(r.leaseExpiry)} />
-          <Detail label="Term (months)" value={r.termMonths?.toString()} />
-        </>
-      )}
-      <Detail label="Size (SF)" value={r.areaSF != null ? fmtNum(r.areaSF) : null} />
-      <Detail label="Office SF" value={r.officeSF != null ? fmtNum(r.officeSF) : null} />
-      <Detail label="Land Acres" value={r.landAcres?.toString()} />
-      <Detail label="Year Built" value={r.yearBuilt?.toString()} />
-      <Detail label="Zoning" value={r.zoning} />
-      <Detail label="Construction" value={r.constructionClass} />
-      <Detail label="Ceiling Height" value={r.ceilingHeight ? r.ceilingHeight + " ft" : null} />
-      <Detail label="Loading Docks" value={r.loadingDocks?.toString()} />
-      <Detail label="Drive-In Doors" value={r.driveInDoors?.toString()} />
-      <Detail label="Units" value={r.numUnits?.toString()} />
-      <Detail label="Investment Type" value={r.investmentType} />
-      <Detail label="Source" value={r.source} />
-      {r.comments && (
+    <div>
+      {/* Key Info */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-6 gap-y-2.5 mb-4">
         <div className="col-span-full">
-          <span className="text-xs text-muted">Comments</span>
-          <p className="text-sm text-foreground">{r.comments}</p>
+          <span className="text-[10px] font-semibold text-muted/60 uppercase tracking-widest">Property</span>
         </div>
+        <Field label="Address" value={r.address + (r.unit ? ` ${r.unit}` : "")} />
+        <Field label="City" value={r.city} />
+        <Field label="Property Type" fieldKey="propertyType" value={r.propertyType} />
+        <Field label="Property Name" value={r.propertyName} />
+        <Field label="Investment Type" value={r.investmentType} />
+      </div>
+
+      {type === "Sale" ? (
+        <>
+          {/* Sale Details */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-6 gap-y-2.5 mb-4">
+            <div className="col-span-full">
+              <span className="text-[10px] font-semibold text-muted/60 uppercase tracking-widest">Transaction</span>
+            </div>
+            <Field label="Sale Date" fieldKey="saleDate" value={fmtDate(r.saleDate)} />
+            <Field label="Sale Price" fieldKey="salePrice" value={fmtPrice(r.salePrice)} />
+            <Field label="Price/SF" value={fmtPSF(r.pricePSF)} />
+            <Field label="Price/Acre" value={r.pricePerAcre != null ? fmtPrice(r.pricePerAcre) : "—"} />
+            <Field label="Price/Unit" value={r.pricePerUnit != null ? fmtPrice(r.pricePerUnit) : "—"} />
+            <Field label="Vendor" fieldKey="seller" value={r.seller} />
+            <Field label="Purchaser" fieldKey="purchaser" value={r.purchaser} />
+            <Field label="Arms Length" value={r.armsLength != null ? (r.armsLength ? "Yes" : "No") : "—"} />
+            <Field label="Portfolio" value={r.portfolio} />
+          </div>
+
+          {/* Investment Metrics */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-6 gap-y-2.5 mb-4">
+            <div className="col-span-full">
+              <span className="text-[10px] font-semibold text-muted/60 uppercase tracking-widest">Investment</span>
+            </div>
+            <Field label="Cap Rate" value={r.capRate != null ? fmtCap(r.capRate) : "—"} />
+            <Field label="NOI" value={r.noi != null ? fmtPrice(r.noi) : "—"} />
+            <Field label="Stabilized Cap Rate" value={r.stabilizedCapRate != null ? fmtCap(r.stabilizedCapRate) : "—"} />
+            <Field label="Stabilized NOI" value={r.stabilizedNOI != null ? fmtPrice(r.stabilizedNOI) : "—"} />
+            <Field label="Vacancy Rate" value={r.vacancyRate != null ? r.vacancyRate.toFixed(1) + "%" : "—"} />
+            <Field label="OPEX Ratio" value={r.opexRatio != null ? r.opexRatio.toFixed(1) + "%" : "—"} />
+            <Field label="# Units" value={r.numUnits?.toString() || "—"} />
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Lease Details */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-6 gap-y-2.5 mb-4">
+            <div className="col-span-full">
+              <span className="text-[10px] font-semibold text-muted/60 uppercase tracking-widest">Lease</span>
+            </div>
+            <Field label="Tenant" fieldKey="tenant" value={r.tenant} />
+            <Field label="Landlord" fieldKey="landlord" value={r.landlord} />
+            <Field label="Lease Type" value={r.leaseType} />
+            <Field label="Renewal" value={r.isRenewal != null ? (r.isRenewal ? "Yes" : "No") : "—"} />
+            <Field label="Lease Start" fieldKey="leaseStart" value={fmtDate(r.leaseStart)} />
+            <Field label="Lease Expiry" fieldKey="leaseExpiry" value={fmtDate(r.leaseExpiry)} />
+            <Field label="Term (months)" value={r.termMonths?.toString() || "—"} />
+          </div>
+
+          {/* Rent */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-6 gap-y-2.5 mb-4">
+            <div className="col-span-full">
+              <span className="text-[10px] font-semibold text-muted/60 uppercase tracking-widest">Rent</span>
+            </div>
+            <Field label="Net Rent/SF/yr" fieldKey="netRentPSF" value={fmtPSF(r.netRentPSF)} />
+            <Field label="Annual Rent" fieldKey="annualRent" value={r.annualRent != null ? fmtPrice(r.annualRent) : "—"} />
+            <Field label="Operating Cost/SF" value={r.operatingCost != null ? fmtPSF(r.operatingCost) : "—"} />
+            <Field label="TI Allowance" value={r.improvementAllowance || "—"} />
+            <Field label="Free Rent" value={r.freeRentPeriod || "—"} />
+            <Field label="Fixturing Period" value={r.fixturingPeriod || "—"} />
+            {rentStepsFormatted && rentStepsFormatted !== "—" ? (
+              <div className="col-span-2">
+                <span className="text-[10px] text-muted uppercase tracking-wider">Rent Steps</span>
+                <div className="text-sm text-foreground space-y-0.5 mt-0.5">
+                  {rentStepsFormatted.split("\n").map((step, i) => (
+                    <p key={i} className="text-sm">{step}</p>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <Field label="Rent Steps" value="—" />
+            )}
+          </div>
+        </>
       )}
+
+      {/* Building */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-6 gap-y-2.5 mb-4">
+        <div className="col-span-full">
+          <span className="text-[10px] font-semibold text-muted/60 uppercase tracking-widest">Building</span>
+        </div>
+        <Field label="Building Area (SF)" fieldKey="areaSF" value={r.areaSF != null ? fmtNum(r.areaSF) : "—"} />
+        <Field label="Office Area (SF)" value={r.officeSF != null ? fmtNum(r.officeSF) : "—"} />
+        <Field label="Land (Acres)" fieldKey="landAcres" value={r.landAcres?.toString() || "—"} />
+        <Field label="Land (SF)" value={r.landSF != null ? fmtNum(r.landSF) : "—"} />
+        <Field label="Year Built" value={r.yearBuilt?.toString() || "—"} />
+        <Field label="Zoning" value={r.zoning || "—"} />
+        <Field label="Construction Class" value={r.constructionClass || "—"} />
+        <Field label="Ceiling Height" value={r.ceilingHeight ? r.ceilingHeight + " ft" : "—"} />
+        <Field label="Loading Docks" value={r.loadingDocks?.toString() || "—"} />
+        <Field label="Drive-In Doors" value={r.driveInDoors?.toString() || "—"} />
+        <Field label="# Buildings" value={r.numBuildings?.toString() || "—"} />
+        <Field label="# Stories" value={r.numStories?.toString() || "—"} />
+      </div>
+
+      {/* Reference */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-6 gap-y-2.5 mb-4">
+        <div className="col-span-full">
+          <span className="text-[10px] font-semibold text-muted/60 uppercase tracking-widest">Reference</span>
+        </div>
+        <Field label="Roll Number" value={r.rollNumber || "—"} />
+        <Field label="PPT Descriptor" value={r.pptDescriptor || "—"} />
+        <Field label="Source" value={r.source || "—"} />
+      </div>
+
+      {/* Comments */}
+      <div className="mb-4">
+        <span className="text-[10px] text-muted uppercase tracking-wider">Comments</span>
+        <p className={`text-sm ${r.comments ? "text-foreground" : "text-muted/40"}`}>{r.comments || "—"}</p>
+      </div>
+
+      <div className="pt-3 border-t border-card-border flex items-center gap-4 flex-wrap">
+        <button onClick={onEdit} className="text-xs text-accent hover:text-accent/80 font-medium transition">Edit Comp</button>
+        {r.isResearched ? (
+          <span className="text-xs text-emerald-400 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+            Researched
+            {r.researchedUnavailable === 1 && <span className="text-muted">(flagged unavailable{r.researchedAt ? ` · expires ${fmtDate(new Date(new Date(r.researchedAt).getTime() + 365*24*60*60*1000).toISOString().split("T")[0])}` : ""})</span>}
+          </span>
+        ) : (
+          <button
+            onClick={() => onFlagUnavailable(r.id)}
+            className="text-xs text-amber-400 hover:text-amber-300 font-medium transition flex items-center gap-1.5"
+          >
+            <span className="w-2 h-2 rounded-full bg-red-500/60 inline-block" />
+            Flag as Unavailable (12mo)
+          </button>
+        )}
+      </div>
     </div>
   );
 }

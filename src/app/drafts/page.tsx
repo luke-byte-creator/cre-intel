@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
+import { track } from "@/lib/track";
 
 interface Draft {
   id: number;
@@ -12,6 +13,10 @@ interface Draft {
   extractedStructure: string | null;
   instructions: string | null;
   status: string;
+  finalDocPath: string | null;
+  finalContent: string | null;
+  diffSummary: string | null;
+  uploadedAt: string | null;
   createdAt: string;
   updatedAt: string;
   dealName: string | null;
@@ -81,6 +86,12 @@ export default function DraftsPage() {
   const [generatedDraft, setGeneratedDraft] = useState<Draft | null>(null);
   const [generatedContent, setGeneratedContent] = useState("");
 
+  // Feedback state
+  const [feedbackFile, setFeedbackFile] = useState<File | null>(null);
+  const [uploadingFeedback, setUploadingFeedback] = useState(false);
+  const [feedbackResult, setFeedbackResult] = useState<string | null>(null);
+  const [markingAsIs, setMarkingAsIs] = useState(false);
+
   // Preset suggestion
   const [presetSuggestion, setPresetSuggestion] = useState<any>(null);
   const [presetName, setPresetName] = useState("");
@@ -138,6 +149,7 @@ export default function DraftsPage() {
       if (res.ok) {
         setGeneratedDraft(data.draft);
         setGeneratedContent(data.content);
+        track("generate", "drafts", { documentType: newDocType, dealId: newDealId || null });
         fetchDrafts();
         // Check for preset suggestion
         checkPresetSuggestion(newDocType);
@@ -213,11 +225,13 @@ export default function DraftsPage() {
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
+    track("copy", "drafts");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleDownload = (text: string, title: string) => {
+    track("download", "drafts", { title });
     const blob = new Blob([text], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -281,6 +295,11 @@ export default function DraftsPage() {
                     </span>
                     <span className="text-sm font-medium text-foreground truncate">{draft.title}</span>
                     {draft.dealName && <span className="text-xs text-muted truncate hidden sm:inline">· {draft.dealName}</span>}
+                    {(draft.uploadedAt || draft.status === "used_as_is") ? (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">feedback ✓</span>
+                    ) : draft.generatedContent ? (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium">⟳ awaiting feedback</span>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${draft.status === "final" ? "bg-emerald-500/20 text-emerald-400" : "bg-zinc-500/20 text-zinc-400"}`}>
@@ -437,6 +456,93 @@ export default function DraftsPage() {
                   </button>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Feedback Section */}
+          {generatedDraft && !generatedDraft.finalContent && !generatedDraft.uploadedAt && (
+            <div className="border border-card-border rounded-xl p-4 space-y-3 bg-card/50">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🎯</span>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Help Nova learn your style</p>
+                  <p className="text-xs text-muted">Upload your final version so Nova can improve future drafts</p>
+                </div>
+              </div>
+
+              {feedbackResult ? (
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+                  <p className="text-sm text-emerald-400 font-medium">✓ Feedback received</p>
+                  <p className="text-xs text-muted mt-1">{(() => {
+                    try { return JSON.parse(feedbackResult).summary; } catch { return feedbackResult; }
+                  })()}</p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 border border-dashed border-card-border rounded-lg p-3">
+                      <input type="file" accept=".pdf,.docx,.txt"
+                        onChange={e => setFeedbackFile(e.target.files?.[0] || null)}
+                        className="text-sm text-foreground file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-zinc-700 file:text-foreground file:text-xs file:cursor-pointer"
+                      />
+                    </div>
+                    <button
+                      disabled={!feedbackFile || uploadingFeedback}
+                      onClick={async () => {
+                        if (!feedbackFile || !generatedDraft) return;
+                        setUploadingFeedback(true);
+                        const fd = new FormData();
+                        fd.append("file", feedbackFile);
+                        try {
+                          const res = await fetch(`/api/drafts/${generatedDraft.id}/upload-final`, { method: "POST", body: fd });
+                          const data = await res.json();
+                          if (res.ok) {
+                            setFeedbackResult(data.diffSummary);
+                            track("upload", "drafts", { draftId: generatedDraft.id });
+                            fetchDrafts();
+                          } else {
+                            alert(data.error || "Upload failed");
+                          }
+                        } finally {
+                          setUploadingFeedback(false);
+                        }
+                      }}
+                      className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 disabled:opacity-40 transition whitespace-nowrap"
+                    >
+                      {uploadingFeedback ? "Analyzing…" : "Upload Final"}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-px bg-card-border" />
+                    <span className="text-xs text-muted">or</span>
+                    <div className="flex-1 h-px bg-card-border" />
+                  </div>
+
+                  <button
+                    disabled={markingAsIs}
+                    onClick={async () => {
+                      if (!generatedDraft) return;
+                      setMarkingAsIs(true);
+                      try {
+                        await fetch(`/api/drafts/${generatedDraft.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ status: "used_as_is" }),
+                        });
+                        setFeedbackResult("Used as-is — Nova will remember this worked well.");
+                        track("edit", "drafts", { action: "used_as_is", draftId: generatedDraft.id });
+                        fetchDrafts();
+                      } finally {
+                        setMarkingAsIs(false);
+                      }
+                    }}
+                    className="w-full py-2 bg-card border border-card-border text-foreground rounded-lg text-sm font-medium hover:bg-white/[0.04] transition"
+                  >
+                    {markingAsIs ? "Saving…" : "I used it as-is ✓"}
+                  </button>
+                </>
+              )}
             </div>
           )}
 

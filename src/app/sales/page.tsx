@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import CompEditModal from "@/components/CompEditModal";
+import { track } from "@/lib/track";
 
 interface Comp {
   id: number;
@@ -227,7 +228,12 @@ export default function SalesPage({ embedded, embeddedSearch, embeddedPropertyTy
   }, [page, effectiveSearch, effectivePropertyType, effectiveCity, effectiveDateFrom, dateTo, priceMin, priceMax, effectiveSizeMin, effectiveSizeMax, sortBy, sortDir, effectiveResearchFilter, effectiveSource]);
 
   useEffect(() => {
-    const t = setTimeout(fetchData, 200);
+    const t = setTimeout(() => {
+      fetchData();
+      if (effectiveSearch || effectivePropertyType !== "All" || effectiveCity !== "All" || effectiveDateFrom) {
+        track("filter", "comps", { type: "Sale", search: effectiveSearch, propertyType: effectivePropertyType, city: effectiveCity });
+      }
+    }, 200);
     return () => clearTimeout(t);
   }, [fetchData]);
 
@@ -267,6 +273,7 @@ export default function SalesPage({ embedded, embeddedSearch, embeddedPropertyTy
     ]);
     setShowCopyMenu(false);
     setCopied(true);
+    track("copy", "comps", { type: "Sale", count: selectedComps.length, detailed });
     setTimeout(() => setCopied(false), 2000);
   }
 

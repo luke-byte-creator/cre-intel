@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import NovaPickCard from "@/components/NovaPickCard";
+import PixelOffice from "@/components/PixelOffice";
 
 /* ── Types ── */
 interface LeaderboardEntry {
@@ -143,10 +145,16 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Dashboard</h1>
         <p className="text-sm text-muted mt-1">Team activity and contributions</p>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Leaderboard entries={leaderboard} />
-        <ActivityFeed activities={activities} loading={loadingActivity} />
+      <NovaPickCard />
+      {/* Nova HQ - Pixel Office with integrated leaderboard */}
+      <div>
+        <h2 className="text-lg font-bold text-foreground tracking-tight mb-3 flex items-center gap-2">
+          <span className="text-base">🏢</span> Nova HQ
+        </h2>
+        <PixelOffice leaderboard={leaderboard} />
       </div>
+
+      <ActivityFeed activities={activities} loading={loadingActivity} />
     </div>
   );
 }

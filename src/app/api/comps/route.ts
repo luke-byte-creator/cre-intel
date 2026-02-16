@@ -73,6 +73,7 @@ export async function GET(req: NextRequest) {
   const validCols: Record<string, unknown> = {
     sale_date: schema.comps.saleDate,
     sale_price: schema.comps.salePrice,
+    price_psf: schema.comps.pricePSF,
     address: schema.comps.address,
     property_type: schema.comps.propertyType,
     cap_rate: schema.comps.capRate,
@@ -80,6 +81,8 @@ export async function GET(req: NextRequest) {
     annual_rent: schema.comps.annualRent,
     area_sf: schema.comps.areaSF,
     city: schema.comps.city,
+    lease_start: schema.comps.leaseStart,
+    lease_expiry: schema.comps.leaseExpiry,
   };
 
   const sortCol = validCols[sortBy] || schema.comps.saleDate;

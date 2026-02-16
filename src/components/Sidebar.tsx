@@ -13,6 +13,7 @@ const dashboardNav = [
   )},
 ];
 
+
 const prospectingExtra = [
   { href: "/search", label: "Search", icon: (
     <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -173,7 +174,7 @@ export default function Sidebar() {
         <nav className="flex-1 py-3 px-3 space-y-4 overflow-y-auto">
           {/* Dashboard */}
           <div className="space-y-0.5">
-            {dashboardNav.map((item) => {
+            {[...dashboardNav, ].map((item) => {
               const active = isActive(item.href);
               return (
                 <Link key={item.href} href={item.href} onClick={() => setOpen(false)}

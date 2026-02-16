@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import NovaLogo from "@/components/NovaLogo";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -36,13 +37,22 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-sm">
-        <div className="card-elevated p-8">
+      {/* Subtle background glow */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-accent/5 rounded-full blur-[120px]" />
+      </div>
+
+      <div className="w-full max-w-sm relative z-10">
+        <div className="bg-card border border-card-border rounded-2xl p-8 shadow-2xl shadow-black/20">
+          {/* Logo + Title */}
           <div className="mb-8 text-center">
+            <div className="flex justify-center mb-4">
+              <NovaLogo size={48} />
+            </div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              <span className="text-gradient">Nova</span>
+              Nova Research
             </h1>
-            <p className="text-xs text-muted mt-1.5">CRE Intelligence Platform</p>
+            <p className="text-xs text-muted mt-1.5 tracking-wide uppercase">CRE Intelligence Platform</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -56,7 +66,7 @@ export default function LoginPage() {
                 required
                 autoFocus
                 className="w-full px-3 py-2.5 bg-background border border-card-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition"
-                placeholder="you@example.com"
+                placeholder="name@cbre.com"
               />
             </div>
 
@@ -82,12 +92,19 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-accent hover:bg-accent/90 text-white text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-2.5 bg-accent hover:bg-accent/90 text-white text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed mt-2"
             >
-              {loading ? "Signing in…" : "Sign In"}
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Signing in…
+                </span>
+              ) : "Sign In"}
             </button>
           </form>
         </div>
+
+        <p className="text-center text-[10px] text-muted/40 mt-6">Nova Research · Internal Use Only</p>
       </div>
     </div>
   );

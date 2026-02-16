@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import DealCalculator, { DealEconomicsData } from "@/components/DealCalculator";
+import { track } from "@/lib/track";
 
 interface Todo {
   id: number;
@@ -612,6 +613,7 @@ export default function PipelinePage() {
 
   const handleDrop = async (stage: string, dealId: number) => {
     setDragOverStage(null);
+    track("edit", "pipeline", { action: "stage_change", dealId, newStage: stage });
     await fetch(`/api/deals/${dealId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage }) });
     fetchDeals();
   };

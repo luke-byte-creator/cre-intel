@@ -29,6 +29,45 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (key in body) updates[key] = body[key];
   }
 
+  // Handle "used_as_is" status — create positive preference observation
+  if (body.status === "used_as_is") {
+    const existing = await db.select().from(schema.underwritingAnalyses).where(eq(schema.underwritingAnalyses.id, Number(id)));
+    if (existing[0]) {
+      const analysis = existing[0];
+      const now = new Date().toISOString();
+      updates.feedbackContext = "Used as-is — no changes needed";
+      updates.uploadedAt = now;
+
+      try {
+        // Create a positive observation
+        const assetClass = analysis.assetClass === "quick"
+          ? (analysis.inputs ? JSON.parse(analysis.inputs).propertyType?.toLowerCase() || "mixed" : "mixed")
+          : analysis.assetClass.split("_")[0];
+
+        await db.insert(schema.underwritingStructurePrefs).values({
+          assetClass,
+          submarket: null,
+          observation: `Model structure and layout were accepted as-is — sections, metrics, and presentation format aligned with team expectations`,
+          confidence: 0.6,
+          occurrences: 1,
+          sourceAnalysisIds: JSON.stringify([Number(id)]),
+          lastSeenAt: now,
+          createdAt: now,
+        });
+
+        await db.insert(schema.activityEvents).values({
+          userId: auth.user.id,
+          userName: auth.user.name,
+          action: "underwriting_used_as_is",
+          category: "underwriting",
+          detail: JSON.stringify({ analysisId: Number(id) }),
+          path: `/underwrite`,
+          createdAt: now,
+        });
+      } catch { /* non-critical */ }
+    }
+  }
+
   await db.update(schema.underwritingAnalyses).set(updates).where(eq(schema.underwritingAnalyses.id, Number(id)));
   const rows = await db.select().from(schema.underwritingAnalyses).where(eq(schema.underwritingAnalyses.id, Number(id)));
   return NextResponse.json(rows[0]);

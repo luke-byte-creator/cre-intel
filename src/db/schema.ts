@@ -523,9 +523,29 @@ export const underwritingAnalyses = sqliteTable("underwriting_analyses", {
   inputs: text("inputs"),
   documents: text("documents"),
   excelPath: text("excel_path"),
+  finalDocPath: text("final_doc_path"),
+  finalInputs: text("final_inputs"), // JSON of their corrected assumptions
+  feedbackContext: text("feedback_context"), // Free text explaining what changed and why
+  diffSummary: text("diff_summary"), // AI-generated analysis of changes
+  uploadedAt: text("uploaded_at"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+// Underwriting Structure Preferences (firm-wide, learned from feedback — HOW models should be built, not what numbers to use)
+export const underwritingStructurePrefs = sqliteTable("underwriting_structure_prefs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  assetClass: text("asset_class").notNull(),
+  submarket: text("submarket"),
+  observation: text("observation").notNull(),
+  confidence: real("confidence").notNull().default(0.5),
+  occurrences: integer("occurrences").notNull().default(1),
+  sourceAnalysisIds: text("source_analysis_ids"),
+  lastSeenAt: text("last_seen_at").notNull(),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_uw_prefs_asset_class").on(table.assetClass),
+]);
 
 // Document Drafts
 export const documentDrafts = sqliteTable("document_drafts", {
@@ -539,6 +559,10 @@ export const documentDrafts = sqliteTable("document_drafts", {
   generatedContent: text("generated_content"),
   instructions: text("instructions"),
   status: text("status").notNull().default("draft"),
+  finalDocPath: text("final_doc_path"),
+  finalContent: text("final_content"),
+  diffSummary: text("diff_summary"),
+  uploadedAt: text("uploaded_at"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [
@@ -559,6 +583,60 @@ export const documentPresets = sqliteTable("document_presets", {
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_document_presets_user_id").on(table.userId),
+]);
+
+// Activity Events (silent analytics)
+export const activityEvents = sqliteTable("activity_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").references(() => users.id),
+  userName: text("user_name"),
+  action: text("action").notNull(),
+  category: text("category").notNull(),
+  detail: text("detail"),
+  path: text("path"),
+  durationMs: integer("duration_ms"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_activity_events_user_id").on(table.userId),
+  index("idx_activity_events_action").on(table.action),
+  index("idx_activity_events_category").on(table.category),
+  index("idx_activity_events_created_at").on(table.createdAt),
+]);
+
+// Draft Preferences (learned from feedback)
+export const draftPreferences = sqliteTable("draft_preferences", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  documentType: text("document_type").notNull(),
+  observation: text("observation").notNull(),
+  confidence: real("confidence").notNull().default(0.5),
+  occurrences: integer("occurrences").notNull().default(1),
+  lastSeenAt: text("last_seen_at").notNull(),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_draft_preferences_user_id").on(table.userId),
+  index("idx_draft_preferences_doc_type").on(table.documentType),
+]);
+
+// Nova Insights (AI-generated deal hypotheses)
+export const novaInsights = sqliteTable("nova_insights", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  hypothesis: text("hypothesis").notNull(),
+  reasoning: text("reasoning").notNull(),
+  category: text("category").notNull(),
+  confidence: real("confidence").notNull(),
+  dataPoints: text("data_points"),
+  feedbackRating: integer("feedback_rating"),
+  feedbackComment: text("feedback_comment"),
+  feedbackUserId: integer("feedback_user_id").references(() => users.id),
+  feedbackUserName: text("feedback_user_name"),
+  feedbackAt: text("feedback_at"),
+  generatedAt: text("generated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_nova_insights_generated_at").on(table.generatedAt),
+  index("idx_nova_insights_category").on(table.category),
+  index("idx_nova_insights_feedback").on(table.feedbackRating),
 ]);
 
 // Retail Tenants
@@ -585,3 +663,14 @@ export const retailTenants = sqliteTable("retail_tenants", {
   index("idx_retail_tenants_dev").on(table.developmentId),
   index("idx_retail_tenants_name").on(table.tenantName),
 ]);
+
+// Nova Feedback — "Talk to the boss"
+export const novaFeedback = sqliteTable("nova_feedback", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").references(() => users.id),
+  userName: text("user_name").notNull(),
+  message: text("message").notNull(),
+  novaReply: text("nova_reply"),
+  readByAdmin: integer("read_by_admin").default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});

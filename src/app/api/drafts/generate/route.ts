@@ -31,29 +31,7 @@ async function callAI(messages: { role: string; content: string }[]) {
   return data.choices?.[0]?.message?.content || "";
 }
 
-async function extractTextFromFile(filePath: string, mimeType: string): Promise<string> {
-  const buffer = fs.readFileSync(filePath);
-
-  if (mimeType === "application/pdf" || filePath.endsWith(".pdf")) {
-    const pdfParse = (await import("pdf-parse")).default;
-    const result = await pdfParse(buffer);
-    return result.text;
-  }
-
-  if (mimeType.includes("spreadsheet") || filePath.endsWith(".xlsx") || filePath.endsWith(".xls")) {
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.read(buffer);
-    let text = "";
-    for (const name of workbook.SheetNames) {
-      text += `\n--- Sheet: ${name} ---\n`;
-      text += XLSX.utils.sheet_to_csv(workbook.Sheets[name]);
-    }
-    return text;
-  }
-
-  // Plain text fallback
-  return buffer.toString("utf-8");
-}
+import { extractTextFromFile } from "@/lib/extract-text";
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   otl: "Offer to Lease",

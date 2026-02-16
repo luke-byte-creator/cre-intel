@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth";
 import { db, schema } from "@/db";
 import { eq, and, sql, avg, sum, count, like, isNotNull } from "drizzle-orm";
 
@@ -106,6 +107,9 @@ function computeAutoCalcs(): AutoCalcResult {
 }
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof Response) return auth;
+
   const years = (req.nextUrl.searchParams.get("years") || "2024,2025,2026").split(",").map(Number);
 
   // Get manual/override stats

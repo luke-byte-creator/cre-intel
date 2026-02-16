@@ -4,8 +4,10 @@ const PUBLIC_PATHS = [
   "/login",
   "/inquire",
   "/api/auth/login",
-  "/api/auth/register",
+  // "/api/auth/register",  // Disabled — team accounts are pre-created
   "/api/inquiries/email",
+  "/api/insights/generate",
+  "/api/digest",
 ];
 
 export function middleware(request: NextRequest) {

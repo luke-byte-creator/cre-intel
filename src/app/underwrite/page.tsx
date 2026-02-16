@@ -16,6 +16,8 @@ interface Analysis {
   mode?: AnalysisMode;
   status: string;
   inputs?: string;
+  feedbackContext?: string;
+  uploadedAt?: string;
   createdAt: string;
 }
 
@@ -830,9 +832,16 @@ export default function UnderwritePage() {
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-foreground font-medium truncate">{a.name}</span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[a.status] || "bg-white/10 text-muted"}`}>
-                          {a.status}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {a.uploadedAt ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-500/15 text-emerald-400">✓ Feedback</span>
+                          ) : (a.status === "complete" || a.status === "used_as_is") ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-400">⟳ Awaiting feedback</span>
+                          ) : null}
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[a.status] || "bg-white/10 text-muted"}`}>
+                            {a.status === "used_as_is" ? "used as-is" : a.status}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 mt-1">
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
@@ -1242,8 +1251,122 @@ export default function UnderwritePage() {
 
   // ─── COMPLETE VIEW ──────────────────────────────────────────────────────
 
+  return <CompleteView
+    analysisName={analysisName}
+    currentId={currentId}
+    downloading={downloading}
+    handleDownload={handleDownload}
+    setView={setView}
+    setCurrentId={setCurrentId}
+    setInputs={setInputs}
+    setFieldMeta={setFieldMeta}
+    setConflicts={setConflicts}
+    setAuditTrail={setAuditTrail}
+  />;
+}
+
+// ─── COMPLETE VIEW COMPONENT ──────────────────────────────────────────────
+
+function CompleteView({
+  analysisName,
+  currentId,
+  downloading,
+  handleDownload,
+  setView,
+  setCurrentId,
+  setInputs,
+  setFieldMeta,
+  setConflicts,
+  setAuditTrail,
+}: {
+  analysisName: string;
+  currentId: number | null;
+  downloading: boolean;
+  handleDownload: () => void;
+  setView: (v: ViewState) => void;
+  setCurrentId: (id: number | null) => void;
+  setInputs: (i: Inputs) => void;
+  setFieldMeta: (m: Record<string, FieldMeta>) => void;
+  setConflicts: (c: ConflictEntry[]) => void;
+  setAuditTrail: (a: AuditEntry[]) => void;
+}) {
+  const [feedbackFile, setFeedbackFile] = useState<File | null>(null);
+  const [feedbackContext, setFeedbackContext] = useState("");
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [diffSummary, setDiffSummary] = useState<string | null>(null);
+  const [diffExpanded, setDiffExpanded] = useState(false);
+  const [markingAsIs, setMarkingAsIs] = useState(false);
+  const feedbackInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleSubmitFeedback() {
+    if (!currentId || (!feedbackContext.trim() && !feedbackFile)) return;
+    setSubmittingFeedback(true);
+    try {
+      const fd = new FormData();
+      if (feedbackFile) fd.append("file", feedbackFile);
+      if (feedbackContext.trim()) fd.append("context", feedbackContext.trim());
+
+      const res = await fetch(`/api/underwrite/${currentId}/upload-final`, {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setFeedbackSubmitted(true);
+      setDiffSummary(data.diffSummary);
+
+      // Track
+      fetch("/api/analytics/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "underwriting_feedback", category: "underwriting", detail: { analysisId: currentId } }),
+      }).catch(() => {});
+    } catch (err) {
+      alert(`Failed: ${(err as Error).message}`);
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  }
+
+  async function handleUsedAsIs() {
+    if (!currentId) return;
+    setMarkingAsIs(true);
+    try {
+      const res = await fetch(`/api/underwrite/${currentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "used_as_is" }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      setFeedbackSubmitted(true);
+      setDiffSummary(null);
+
+      fetch("/api/analytics/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "underwriting_used_as_is", category: "underwriting", detail: { analysisId: currentId } }),
+      }).catch(() => {});
+    } catch (err) {
+      alert(`Failed: ${(err as Error).message}`);
+    } finally {
+      setMarkingAsIs(false);
+    }
+  }
+
+  // Parse diff summary for display
+  const parsedDiff = useMemo(() => {
+    if (!diffSummary) return null;
+    try {
+      const match = diffSummary.match(/\{[\s\S]*\}/);
+      if (match) return JSON.parse(match[0]);
+    } catch {}
+    return null;
+  }, [diffSummary]);
+
   return (
-    <div className="flex items-center justify-center min-h-[60vh]">
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
       <div className="bg-card border border-card-border rounded-xl p-8 max-w-md text-center space-y-4">
         <div className="w-14 h-14 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto">
           <svg className="w-7 h-7 text-emerald-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -1273,6 +1396,126 @@ export default function UnderwritePage() {
             New Analysis
           </button>
         </div>
+      </div>
+
+      {/* Feedback Section */}
+      <div className="bg-card border border-card-border rounded-xl p-6 max-w-lg w-full space-y-4">
+        {feedbackSubmitted ? (
+          <div className="text-center space-y-3">
+            <div className="w-10 h-10 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto">
+              <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-foreground">✓ Feedback received</p>
+            <p className="text-xs text-muted">Nova will use this to improve future underwriting.</p>
+
+            {/* Diff summary collapsible */}
+            {parsedDiff && (
+              <div className="mt-3 text-left">
+                <button
+                  onClick={() => setDiffExpanded(!diffExpanded)}
+                  className="text-xs text-accent hover:text-accent/80 transition flex items-center gap-1"
+                >
+                  {diffExpanded ? "▾" : "▸"} View AI Analysis
+                </button>
+                {diffExpanded && (
+                  <div className="mt-2 bg-white/[0.02] border border-card-border rounded-lg p-3 space-y-2 text-xs">
+                    <p className="text-gray-300">{parsedDiff.summary}</p>
+                    {parsedDiff.changes?.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-gray-500 font-medium">Changes:</p>
+                        {parsedDiff.changes.map((c: { field?: string; section?: string; description?: string; original?: string; final?: string; reasoning?: string }, i: number) => (
+                          <div key={i} className="pl-2 border-l border-gray-700 text-gray-400">
+                            <span className="text-gray-200">{c.field || c.section}</span>: {c.description || `${c.original} → ${c.final}`}
+                            {c.reasoning && <span className="text-gray-500"> — {c.reasoning}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {parsedDiff.patterns?.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-gray-500 font-medium">Patterns learned:</p>
+                        {parsedDiff.patterns.map((p: string, i: number) => (
+                          <div key={i} className="pl-2 text-gray-400">• {p}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-base">📊</span>
+              <h3 className="text-sm font-semibold text-foreground">Help Nova improve future underwriting</h3>
+            </div>
+            <p className="text-xs text-muted">
+              Once you&apos;ve finalized this model, upload your final version and tell Nova what you changed.
+            </p>
+
+            {/* File upload */}
+            <div>
+              <input
+                ref={feedbackInputRef}
+                type="file"
+                accept=".xlsx,.xls,.pdf"
+                className="hidden"
+                onChange={e => e.target.files?.[0] && setFeedbackFile(e.target.files[0])}
+              />
+              <button
+                onClick={() => feedbackInputRef.current?.click()}
+                className="px-3 py-1.5 text-xs rounded-lg bg-white/[0.04] border border-card-border text-muted hover:text-foreground hover:bg-white/[0.06] transition"
+              >
+                {feedbackFile ? `📎 ${feedbackFile.name}` : "Choose File (Excel, PDF)"}
+              </button>
+              {feedbackFile && (
+                <button onClick={() => setFeedbackFile(null)} className="ml-2 text-xs text-gray-500 hover:text-red-400">✕</button>
+              )}
+            </div>
+
+            {/* Context textarea */}
+            <div>
+              <label className="text-xs font-medium text-gray-300 block mb-1">What did you change and why?</label>
+              <textarea
+                value={feedbackContext}
+                onChange={e => setFeedbackContext(e.target.value)}
+                rows={4}
+                className="w-full bg-white/[0.04] border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 resize-none placeholder:text-gray-600"
+                placeholder={'e.g. "Need to see three cap rate scenarios side by side instead of one. Add a debt coverage ratio row in the financing section. Break out recovery income by type (CAM, tax, insurance) instead of one line."'}
+              />
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={handleSubmitFeedback}
+                disabled={submittingFeedback || (!feedbackContext.trim() && !feedbackFile)}
+                className="flex-1 py-2 rounded-lg text-sm font-semibold bg-accent text-white hover:bg-accent/90 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {submittingFeedback ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="40 20" /></svg>
+                    Analyzing...
+                  </span>
+                ) : "Upload & Submit Feedback"}
+              </button>
+              <button
+                onClick={handleUsedAsIs}
+                disabled={markingAsIs}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/15 transition disabled:opacity-40"
+              >
+                {markingAsIs ? "..." : "I used it as-is ✓"}
+              </button>
+            </div>
+
+            <p className="text-[11px] text-muted/50 text-center">
+              This helps Nova learn your team&apos;s underwriting style.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
