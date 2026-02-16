@@ -220,6 +220,7 @@ function DealTodos({ dealId, todos, onToggle }: { dealId: number; todos: Todo[];
 function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; todos: Todo[]; fetchTodos: () => void; fetchDeals: () => void }) {
   const [newText, setNewText] = useState("");
   const [hideCompleted, setHideCompleted] = useState(false);
+  const [showAllCompleted, setShowAllCompleted] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestionFilter, setSuggestionFilter] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
@@ -418,29 +419,41 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
         ))}
       </div>
 
-      {/* Completed todos */}
-      {!hideCompleted && completedTodos.length > 0 && (
-        <>
-          <div className="border-t border-zinc-700/50 my-3" />
-          <div className="space-y-1">
-            {completedTodos.map(todo => (
-              <div key={todo.id} className="flex items-center gap-2 group py-1.5 px-2 rounded-lg hover:bg-zinc-800/50 transition">
-                <button
-                  onClick={() => handleToggle(todo)}
-                  className="w-5 h-5 rounded-full bg-emerald-500 border-2 border-emerald-500 flex items-center justify-center flex-shrink-0"
-                >
-                  <span className="text-[10px] text-white">✓</span>
-                </button>
-                <span className="text-sm text-muted/50 line-through flex-1">{todo.text}</span>
-                <span className="text-[10px] text-muted/40 bg-zinc-700/30 rounded-full px-2 py-0.5 flex-shrink-0">{todo.dealName}</span>
-                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
-                  <button onClick={() => handleDelete(todo.id)} className="text-zinc-500 hover:text-red-400 text-xs px-1">✕</button>
+      {/* Completed todos — show 5 most recent, expandable */}
+      {!hideCompleted && completedTodos.length > 0 && (() => {
+        const showAll = hideCompleted === false && completedTodos.length > 5;
+        const visible = showAllCompleted ? completedTodos : completedTodos.slice(0, 5);
+        return (
+          <>
+            <div className="border-t border-zinc-700/50 my-3" />
+            <div className="space-y-1">
+              {visible.map(todo => (
+                <div key={todo.id} className="flex items-center gap-2 group py-1.5 px-2 rounded-lg hover:bg-zinc-800/50 transition">
+                  <button
+                    onClick={() => handleToggle(todo)}
+                    className="w-5 h-5 rounded-full bg-emerald-500 border-2 border-emerald-500 flex items-center justify-center flex-shrink-0"
+                  >
+                    <span className="text-[10px] text-white">✓</span>
+                  </button>
+                  <span className="text-sm text-muted/50 line-through flex-1">{todo.text}</span>
+                  <span className="text-[10px] text-muted/40 bg-zinc-700/30 rounded-full px-2 py-0.5 flex-shrink-0">{todo.dealName}</span>
+                  <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                    <button onClick={() => handleDelete(todo.id)} className="text-zinc-500 hover:text-red-400 text-xs px-1">✕</button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+              ))}
+            </div>
+            {completedTodos.length > 5 && (
+              <button
+                onClick={() => setShowAllCompleted(!showAllCompleted)}
+                className="text-xs text-muted hover:text-foreground transition mt-2"
+              >
+                {showAllCompleted ? "Show less" : `Show more (${completedTodos.length - 5} more)`}
+              </button>
+            )}
+          </>
+        );
+      })()}
 
       {todos.length === 0 && (
         <p className="text-sm text-muted/50 text-center py-6">No tasks yet. Add one above.</p>
