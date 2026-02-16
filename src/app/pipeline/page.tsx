@@ -220,6 +220,35 @@ function DealTodos({ dealId, todos, onToggle }: { dealId: number; todos: Todo[];
 function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; todos: Todo[]; fetchTodos: () => void; fetchDeals: () => void }) {
   const [newText, setNewText] = useState("");
   const [hideCompleted, setHideCompleted] = useState(false);
+  const [showNewDeal, setShowNewDeal] = useState(false);
+  const [newDealName, setNewDealName] = useState("");
+  const [newDealProperty, setNewDealProperty] = useState("");
+  const [newDealNote, setNewDealNote] = useState("");
+  const [creatingDeal, setCreatingDeal] = useState(false);
+
+  const handleCreateDeal = async () => {
+    if (!newDealName.trim()) return;
+    setCreatingDeal(true);
+    const notes = newDealNote.trim()
+      ? JSON.stringify([{ text: newDealNote.trim(), date: new Date().toISOString() }])
+      : null;
+    await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenantName: newDealName.trim(),
+        propertyAddress: newDealProperty.trim() || "",
+        stage: "prospect",
+        notes,
+      }),
+    });
+    setNewDealName("");
+    setNewDealProperty("");
+    setNewDealNote("");
+    setShowNewDeal(false);
+    setCreatingDeal(false);
+    fetchDeals();
+  };
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestionFilter, setSuggestionFilter] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
@@ -334,13 +363,55 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
           <h2 className="text-lg font-semibold text-foreground">To Do</h2>
           <span className="text-xs text-muted bg-zinc-700/50 rounded-full px-2 py-0.5">{incompleteTodos.length}</span>
         </div>
-        <button
-          onClick={() => setHideCompleted(!hideCompleted)}
-          className="text-xs text-muted hover:text-foreground transition"
-        >
-          {hideCompleted ? "Show completed" : "Hide completed"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowNewDeal(!showNewDeal)}
+            className="text-xs text-accent hover:text-accent/80 transition font-medium"
+          >
+            {showNewDeal ? "Cancel" : "+ New Deal"}
+          </button>
+          <button
+            onClick={() => setHideCompleted(!hideCompleted)}
+            className="text-xs text-muted hover:text-foreground transition"
+          >
+            {hideCompleted ? "Show completed" : "Hide completed"}
+          </button>
+        </div>
       </div>
+
+      {/* Quick new deal */}
+      {showNewDeal && (
+        <div className="mb-4 p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg space-y-2">
+          <input
+            value={newDealName}
+            onChange={e => setNewDealName(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleCreateDeal(); }}
+            placeholder="Deal / tenant name *"
+            className="w-full bg-background border border-card-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-accent/50"
+            autoFocus
+          />
+          <input
+            value={newDealProperty}
+            onChange={e => setNewDealProperty(e.target.value)}
+            placeholder="Property (optional)"
+            className="w-full bg-background border border-card-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-accent/50"
+          />
+          <input
+            value={newDealNote}
+            onChange={e => setNewDealNote(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleCreateDeal(); }}
+            placeholder="Quick note (optional)"
+            className="w-full bg-background border border-card-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-accent/50"
+          />
+          <button
+            onClick={handleCreateDeal}
+            disabled={!newDealName.trim() || creatingDeal}
+            className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 disabled:opacity-40 transition"
+          >
+            {creatingDeal ? "Creating..." : "Add to Pipeline"}
+          </button>
+        </div>
+      )}
 
       {/* Add todo */}
       <div className="relative flex gap-2 mb-4">
