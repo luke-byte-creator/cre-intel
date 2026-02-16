@@ -53,14 +53,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         return (oldVal === null || oldVal === undefined) && body[f] !== null && body[f] !== "" && body[f] !== undefined;
       });
       if (newRentFields.length > 0) {
-        awardCredits(auth.user.id, 1, "add_rent_survey", bid);
+        awardCredits(auth.user.id, 1, "add_rent_survey", bid, undefined, `Added rent survey for ${current.buildingName || current.address}`);
         awardedRentSurvey = true;
       }
     }
   }
 
   if (!awardedRentSurvey) {
-    awardCredits(auth.user.id, 1, "update_multi", bid);
+    const [mBldg] = db.select({ name: schema.multiBuildings.buildingName, addr: schema.multiBuildings.address }).from(schema.multiBuildings).where(eq(schema.multiBuildings.id, bid)).all();
+    awardCredits(auth.user.id, 1, "update_multi", bid, undefined, `Updated ${mBldg?.name || mBldg?.addr || "multifamily building"}`);
   }
 
   await db.update(schema.multiBuildings).set(updates).where(eq(schema.multiBuildings.id, bid));

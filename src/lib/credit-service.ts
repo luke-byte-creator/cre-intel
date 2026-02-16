@@ -18,7 +18,8 @@ export function awardCredits(
   amount: number,
   reason: string,
   compId?: number | null,
-  metadata?: string | null
+  metadata?: string | null,
+  description?: string | null
 ): number {
   const currentBalance = getUserBalance(userId);
   const newBalance = Math.min(currentBalance + amount, CREDIT_CONFIG.MAX_BALANCE);
@@ -32,6 +33,7 @@ export function awardCredits(
     reason,
     compId: compId ?? null,
     metadata: metadata ?? null,
+    description: description ?? null,
   }).run();
 
   db.update(schema.users)

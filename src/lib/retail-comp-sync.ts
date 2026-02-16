@@ -1,5 +1,6 @@
 import { db, schema } from "@/db";
 import { eq, and } from "drizzle-orm";
+import { linkComp } from "./comp-linker";
 
 /**
  * Syncs a retail tenant to a real comp in the comps table.
@@ -45,7 +46,7 @@ export function syncRetailTenantToComp(tenantId: number) {
     }).where(eq(schema.comps.id, existing.id)).run();
   } else {
     // Create new comp
-    db.insert(schema.comps).values({
+    const result = db.insert(schema.comps).values({
       type: "Lease",
       propertyType: "Retail",
       address: dev?.address || dev?.name || "Unknown Development",
@@ -65,6 +66,7 @@ export function syncRetailTenantToComp(tenantId: number) {
       operatingCost: tenant.operatingCosts,
       source: "Retail Rent Roll",
       retailTenantId: tenantId,
-    }).run();
+    }).returning({ id: schema.comps.id }).get();
+    if (result) linkComp(result.id);
   }
 }

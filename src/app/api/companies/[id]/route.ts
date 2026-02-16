@@ -30,7 +30,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     .where(eq(schema.companyPeople.companyId, companyId))
     .all();
 
-  const transactions = db
+  // Legacy transactions table (transfer list data)
+  const legacyTransactions = db
     .select({
       id: schema.transactions.id,
       propertyId: schema.transactions.propertyId,
@@ -55,6 +56,28 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     .orderBy(sql`transfer_date DESC`)
     .all();
 
+  // Comps (sale/lease) where company appears as seller/purchaser/landlord/tenant (FK-based)
+  const compsAsParty = db.all(sql`
+    SELECT id, type, address, city, sale_date as saleDate, sale_price as salePrice, price_psf as pricePSF,
+      seller, purchaser, landlord, tenant, property_type as propertyType,
+      net_rent_psf as netRentPSF, annual_rent as annualRent, area_sf as areaSF, term_months as termMonths,
+      seller_company_id, purchaser_company_id, landlord_company_id, tenant_company_id
+    FROM comps
+    WHERE seller_company_id = ${companyId}
+      OR purchaser_company_id = ${companyId}
+      OR landlord_company_id = ${companyId}
+      OR tenant_company_id = ${companyId}
+    ORDER BY sale_date DESC
+  `) as any[];
+
+  const transactions = legacyTransactions;
+  const compTransactions = compsAsParty.map((c: any) => ({
+    ...c,
+    role: c.seller_company_id === companyId ? "Seller" :
+          c.purchaser_company_id === companyId ? "Purchaser" :
+          c.landlord_company_id === companyId ? "Landlord" : "Tenant",
+  }));
+
   const permits = db
     .select()
     .from(schema.permits)
@@ -62,5 +85,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     .orderBy(sql`issue_date DESC`)
     .all();
 
-  return NextResponse.json({ company, people, transactions, permits });
+  return NextResponse.json({ company, people, transactions, permits, compTransactions });
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAuth(req);
+  if (auth instanceof Response) return auth;
+  const { id } = await params;
+  const companyId = parseInt(id, 10);
+  if (isNaN(companyId)) return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
+
+  // Delete relationships
+  db.delete(schema.companyPeople).where(eq(schema.companyPeople.companyId, companyId)).run();
+  // Delete watchlist entries
+  db.run(sql`DELETE FROM watchlist WHERE entity_type = 'company' AND entity_id = ${companyId}`);
+  // Delete company
+  db.delete(schema.companies).where(eq(schema.companies.id, companyId)).run();
+  return NextResponse.json({ ok: true });
 }

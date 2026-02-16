@@ -46,6 +46,10 @@ export async function POST(request: NextRequest) {
       leaseExpiry: body.leaseExpiry || null,
     }).returning({ id: schema.comps.id }).get();
 
+    // Link to properties and companies
+    const { linkComp } = await import("@/lib/comp-linker");
+    linkComp(result.id);
+
     return Response.json({ success: true, id: result.id });
   } catch (err) {
     return Response.json({ error: `Failed to add comp: ${(err as Error).message}` }, { status: 500 });

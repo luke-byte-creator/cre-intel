@@ -8,6 +8,7 @@ interface PropertyData {
   property: Record<string, string | number | null>;
   transactions: Record<string, string | number | null>[];
   permits: Record<string, string | number | null>[];
+  comps: Record<string, string | number | null>[];
 }
 
 interface WatchStatus { watched: boolean; watchId: number | null; }
@@ -36,7 +37,7 @@ export default function PropertyProfile() {
 
   const tabs = [
     { id: "details", label: "Details" },
-    { id: "transactions", label: "Transactions", count: data.transactions.length },
+    { id: "transactions", label: "Transactions", count: (data.comps || []).length },
     { id: "permits", label: "Permits", count: data.permits.length },
   ];
 
@@ -70,28 +71,39 @@ export default function PropertyProfile() {
         )}
 
         {tab === "transactions" && (
-          data.transactions.length === 0 ? (
+          (data.comps || []).length === 0 ? (
             <div className="bg-card border border-card-border rounded-xl p-8 text-center text-muted text-sm">No transactions</div>
           ) : (
             <div className="bg-card border border-card-border rounded-xl overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-card-border">
-                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Date</th>
                   <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Type</th>
-                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Grantor</th>
-                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Grantee</th>
-                  <th className="px-4 py-3 text-right text-xs uppercase tracking-wider text-muted font-semibold">Price</th>
+                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Date</th>
+                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Parties</th>
+                  <th className="px-4 py-3 text-right text-xs uppercase tracking-wider text-muted font-semibold">Price / Rent</th>
                 </tr></thead>
                 <tbody>
-                  {data.transactions.map((t, i) => (
-                    <tr key={i} className={`border-b border-card-border/50 last:border-0 hover:bg-accent/[0.04] ${i % 2 ? "bg-card/30" : ""}`}>
-                      <td className="px-4 py-2.5 whitespace-nowrap">{(t.transferDate as string) || "—"}</td>
-                      <td className="px-4 py-2.5">{(t.transactionType as string) || "—"}</td>
-                      <td className="px-4 py-2.5">{(t.grantor as string) || "—"}</td>
-                      <td className="px-4 py-2.5">{(t.grantee as string) || "—"}</td>
-                      <td className="px-4 py-2.5 text-right font-mono">{fmt(t.price as number)}</td>
-                    </tr>
-                  ))}
+                  {data.comps.map((c, i) => {
+                    const isSale = c.type === "Sale";
+                    const parties = isSale
+                      ? `${c.seller || "—"} → ${c.purchaser || "—"}`
+                      : `${c.landlord || "—"} → ${c.tenant || "—"}`;
+                    const value = isSale
+                      ? fmt(c.salePrice as number)
+                      : c.netRentPSF ? `$${Number(c.netRentPSF).toFixed(2)}/sf` : fmt(c.annualRent as number);
+                    return (
+                      <tr key={i} className={`border-b border-card-border/50 last:border-0 hover:bg-accent/[0.04] ${i % 2 ? "bg-card/30" : ""}`}>
+                        <td className="px-4 py-2.5">
+                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${isSale ? "bg-blue-500/15 text-blue-400" : "bg-emerald-500/15 text-emerald-400"}`}>
+                            {c.type as string}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap">{(c.saleDate as string) || "—"}</td>
+                        <td className="px-4 py-2.5">{parties}</td>
+                        <td className="px-4 py-2.5 text-right font-mono">{value}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

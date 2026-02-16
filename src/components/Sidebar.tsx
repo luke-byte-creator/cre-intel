@@ -14,6 +14,11 @@ const dashboardNav = [
 ];
 
 const prospectingExtra = [
+  { href: "/search", label: "Search", icon: (
+    <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+    </svg>
+  )},
   { href: "/inquiries", label: "Inquiries", icon: (
     <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661z" />
@@ -21,6 +26,11 @@ const prospectingExtra = [
   )},
   { href: "/pipeline", label: "Pipeline", icon: (
     <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" /></svg>
+  )},
+  { href: "/watchlist", label: "Watchlist", icon: (
+    <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0113.186 0z" />
+    </svg>
   )},
 ];
 
@@ -96,8 +106,14 @@ export default function Sidebar() {
   const [ledger, setLedger] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch("/api/auth/me").then(r => r.json()).then(d => {
-      if (d.user) {
+    fetch("/api/auth/me").then(r => {
+      if (r.status === 401) {
+        router.replace("/login");
+        return null;
+      }
+      return r.json();
+    }).then(d => {
+      if (d?.user) {
         setUserName(d.user.name);
         setCreditBalance(d.user.creditBalance ?? null);
         setAccessLevel(d.user.accessLevel ?? null);
@@ -246,7 +262,7 @@ export default function Sidebar() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-muted">Credits</span>
-                <span className={`text-sm font-bold ${creditBalance >= 30 ? "text-emerald-400" : creditBalance >= 10 ? "text-yellow-400" : "text-red-400"}`}>
+                <span className={`text-sm font-bold ${creditBalance >= 6 ? "text-emerald-400" : creditBalance >= 1 ? "text-yellow-400" : "text-red-400"}`}>
                   {creditBalance}
                 </span>
               </div>

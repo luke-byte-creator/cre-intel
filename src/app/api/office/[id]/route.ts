@@ -42,7 +42,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   await db.update(schema.officeBuildings).set(updates).where(eq(schema.officeBuildings.id, buildingId));
 
-  awardCredits(auth.user.id, 1, "update_office", buildingId);
+  const [bldg] = db.select({ name: schema.officeBuildings.buildingName, addr: schema.officeBuildings.address }).from(schema.officeBuildings).where(eq(schema.officeBuildings.id, buildingId)).all();
+  awardCredits(auth.user.id, 1, "update_office", buildingId, undefined, `Updated ${bldg?.name || bldg?.addr || "office building"}`);
 
   const [updated] = db.select().from(schema.officeBuildings).where(eq(schema.officeBuildings.id, buildingId)).all();
   return NextResponse.json(updated);

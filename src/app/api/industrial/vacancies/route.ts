@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     notes: body.notes || null,
   }).returning().get();
 
-  awardCredits(auth.user.id, 1, "update_industrial_vacancy");
+  awardCredits(auth.user.id, 1, "update_industrial_vacancy", undefined, undefined, `Added vacancy record — ${body.address}`);
 
   return NextResponse.json(result);
 }

@@ -57,6 +57,6 @@ export async function POST(req: NextRequest) {
     notes: body.notes || null,
   }).run();
 
-  
+  awardCredits(auth.user.id, 1, "update_retail_dev", undefined, undefined, `Added retail development — ${body.name}`);
   return NextResponse.json({ ok: true });
 }

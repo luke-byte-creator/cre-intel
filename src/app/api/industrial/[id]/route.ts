@@ -60,7 +60,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   writeData(data);
 
   // Award 1 credit for industrial edit
-  awardCredits(auth.user.id, 1, "update_industrial");
+  awardCredits(auth.user.id, 1, "update_industrial", undefined, undefined, `Updated ${data[idx].businessName || data[idx].address || "industrial building"}`);
 
   return NextResponse.json(data[idx]);
 }

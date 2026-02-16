@@ -29,7 +29,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ te
   syncRetailTenantToComp(parseInt(tenantId));
   
   const creditAmount = fieldChanges >= 5 ? 2 : 1;
-  awardCredits(auth.user.id, creditAmount, "update_retail");
+  const tName = body.tenantName || (db.select({ n: schema.retailTenants.tenantName }).from(schema.retailTenants).where(eq(schema.retailTenants.id, parseInt(tenantId))).get())?.n || "tenant";
+  awardCredits(auth.user.id, creditAmount, "update_retail", undefined, undefined, `Updated tenant ${tName}`);
   return NextResponse.json({ ok: true });
 }
 

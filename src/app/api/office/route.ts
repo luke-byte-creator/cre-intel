@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     neighborhood: body.neighborhood || null,
   }).run();
 
-  
+  awardCredits(auth.user.id, 1, "update_office", Number(result.lastInsertRowid), undefined, `Added office building — ${body.buildingName || body.address}`);
 
   return NextResponse.json({ id: result.lastInsertRowid });
 }

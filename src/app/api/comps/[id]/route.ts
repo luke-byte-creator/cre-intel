@@ -83,7 +83,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (filledCount > 0) {
     const amount = filledCount >= 5 ? CREDIT_CONFIG.ACTIONS.FILL_FIELDS_MAJOR : CREDIT_CONFIG.ACTIONS.FILL_FIELDS_MINOR;
     const reason = filledCount >= 5 ? "fill_fields" : "fill_fields";
-    awardCredits(auth.user.id, amount, reason, compId, JSON.stringify({ fields: filledFields, count: filledCount }));
+    awardCredits(auth.user.id, amount, reason, compId, JSON.stringify({ fields: filledFields, count: filledCount }), `Updated comp ${currentComp.address}`);
   }
 
   // Auto-set researched flag if key fields are now complete

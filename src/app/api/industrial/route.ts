@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   data.push(newBuilding);
   fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
 
-  
+  awardCredits(auth.user.id, 1, "update_industrial", undefined, undefined, `Added industrial building — ${body.address}`);
 
   return NextResponse.json(newBuilding);
 }

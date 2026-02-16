@@ -16,10 +16,31 @@ interface Person {
   notes: string | null;
 }
 
+interface CompTransaction {
+  id: number;
+  type: string;
+  address: string;
+  city: string;
+  saleDate: string | null;
+  salePrice: number | null;
+  pricePSF: number | null;
+  seller: string | null;
+  purchaser: string | null;
+  landlord: string | null;
+  tenant: string | null;
+  propertyType: string | null;
+  netRentPSF: number | null;
+  annualRent: number | null;
+  areaSF: number | null;
+  termMonths: number | null;
+  role: string;
+}
+
 interface CompanyData {
   company: Record<string, string | number | null>;
   people: Person[];
   transactions: Record<string, string | number | null>[];
+  compTransactions: CompTransaction[];
   permits: Record<string, string | number | null>[];
 }
 
@@ -66,7 +87,7 @@ export default function CompanyProfile() {
   const tabs = [
     { id: "details", label: "Details" },
     { id: "people", label: "People", count: data.people.length },
-    { id: "transactions", label: "Transactions", count: data.transactions.length },
+    { id: "transactions", label: "Transactions", count: data.transactions.length + (data.compTransactions?.length || 0) },
     { id: "permits", label: "Permits", count: data.permits.length },
   ];
 
@@ -153,42 +174,72 @@ export default function CompanyProfile() {
           )
         )}
 
-        {tab === "transactions" && (
-          data.transactions.length === 0 ? (
+        {tab === "transactions" && (() => {
+          const allTx = [
+            ...data.transactions.map((t) => ({ source: "transfer" as const, ...t })),
+            ...(data.compTransactions || []).map((ct) => ({ source: "comp" as const, ...ct })),
+          ];
+          return allTx.length === 0 ? (
             <div className="bg-card border border-card-border rounded-xl p-8 text-center text-muted text-sm">No transactions</div>
           ) : (
             <div className="bg-card border border-card-border rounded-xl overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-card-border">
                   <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Date</th>
-                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Address</th>
                   <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Type</th>
-                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Vendor</th>
-                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Purchaser</th>
-                  <th className="px-4 py-3 text-right text-xs uppercase tracking-wider text-muted font-semibold">Price</th>
+                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Role</th>
+                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Address</th>
+                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider text-muted font-semibold">Counterparty</th>
+                  <th className="px-4 py-3 text-right text-xs uppercase tracking-wider text-muted font-semibold">Value</th>
                 </tr></thead>
                 <tbody>
-                  {data.transactions.map((t, i) => {
-                    const pType = (t.propertyType as string) || "Other";
-                    const badgeColor = typeBadgeColors[pType] || "bg-gray-500/15 text-gray-400";
-                    return (
-                      <tr key={i} className={`border-b border-card-border/50 last:border-0 hover:bg-accent/[0.04] ${i % 2 ? "bg-card/30" : ""}`}>
-                        <td className="px-4 py-2.5 whitespace-nowrap">{(t.transferDate as string) || "—"}</td>
-                        <td className="px-4 py-2.5">{(t.propertyAddress as string) || "—"}</td>
-                        <td className="px-4 py-2.5">
-                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${badgeColor}`}>{pType}</span>
-                        </td>
-                        <td className="px-4 py-2.5">{(t.grantor as string) || "—"}</td>
-                        <td className="px-4 py-2.5">{(t.grantee as string) || "—"}</td>
-                        <td className="px-4 py-2.5 text-right font-mono">{fmt(t.price as number)}</td>
-                      </tr>
-                    );
+                  {allTx.map((t: any, i) => {
+                    if (t.source === "comp") {
+                      const ct = t as CompTransaction & { source: string };
+                      const isSale = ct.type === "Sale";
+                      const counterparty = ct.role === "Seller" ? ct.purchaser :
+                        ct.role === "Purchaser" ? ct.seller :
+                        ct.role === "Landlord" ? ct.tenant : ct.landlord;
+                      const value = isSale && ct.salePrice ? fmt(ct.salePrice) :
+                        !isSale && ct.netRentPSF ? `$${ct.netRentPSF.toFixed(2)}/SF` : "—";
+                      return (
+                        <tr key={`comp-${ct.id}`} className={`border-b border-card-border/50 last:border-0 hover:bg-accent/[0.04] ${i % 2 ? "bg-card/30" : ""}`}>
+                          <td className="px-4 py-2.5 whitespace-nowrap">{ct.saleDate || "—"}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${isSale ? "bg-blue-500/15 text-blue-400" : "bg-green-500/15 text-green-400"}`}>{ct.type}</span>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                              ct.role === "Seller" || ct.role === "Landlord" ? "bg-amber-500/15 text-amber-400" : "bg-emerald-500/15 text-emerald-400"
+                            }`}>{ct.role}</span>
+                          </td>
+                          <td className="px-4 py-2.5">{ct.address || "—"}</td>
+                          <td className="px-4 py-2.5">{counterparty || "—"}</td>
+                          <td className="px-4 py-2.5 text-right font-mono">{value}</td>
+                        </tr>
+                      );
+                    } else {
+                      const pType = (t.propertyType as string) || "Other";
+                      const badgeColor = typeBadgeColors[pType] || "bg-gray-500/15 text-gray-400";
+                      return (
+                        <tr key={`tx-${i}`} className={`border-b border-card-border/50 last:border-0 hover:bg-accent/[0.04] ${i % 2 ? "bg-card/30" : ""}`}>
+                          <td className="px-4 py-2.5 whitespace-nowrap">{(t.transferDate as string) || "—"}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${badgeColor}`}>{pType}</span>
+                          </td>
+                          <td className="px-4 py-2.5">—</td>
+                          <td className="px-4 py-2.5">{(t.propertyAddress as string) || "—"}</td>
+                          <td className="px-4 py-2.5">{(t.grantee as string) || (t.grantor as string) || "—"}</td>
+                          <td className="px-4 py-2.5 text-right font-mono">{fmt(t.price as number)}</td>
+                        </tr>
+                      );
+                    }
                   })}
                 </tbody>
               </table>
             </div>
-          )
-        )}
+          );
+        })()}
 
         {tab === "permits" && (
           data.permits.length === 0 ? (

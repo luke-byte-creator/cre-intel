@@ -14,7 +14,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (k in body) updates[k] = body[k] === "" ? null : body[k];
   }
   await db.update(schema.retailDevelopments).set(updates).where(eq(schema.retailDevelopments.id, parseInt(id)));
-  awardCredits(auth.user.id, 1, "update_retail", parseInt(id));
+  const devName = body.name || (await db.select({ name: schema.retailDevelopments.name }).from(schema.retailDevelopments).where(eq(schema.retailDevelopments.id, parseInt(id))).get())?.name || "development";
+  awardCredits(auth.user.id, 1, "update_retail", parseInt(id), undefined, `Updated ${devName}`);
   return NextResponse.json({ ok: true });
 }
 

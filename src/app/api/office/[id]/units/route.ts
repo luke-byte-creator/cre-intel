@@ -29,7 +29,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }).run();
 
   // Award credits for stacking plan update
-  awardCredits(auth.user.id, 1, "update_stacking_plan");
+  const [bldg] = db.select({ name: schema.officeBuildings.buildingName, addr: schema.officeBuildings.address }).from(schema.officeBuildings).where(eq(schema.officeBuildings.id, buildingId)).all();
+  awardCredits(auth.user.id, 1, "update_office_unit", undefined, undefined, `Added unit to ${bldg?.name || bldg?.addr || "office building"}`);
 
   const units = db.select().from(schema.officeUnits).where(eq(schema.officeUnits.buildingId, buildingId)).all();
   return NextResponse.json(units);

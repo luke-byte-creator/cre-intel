@@ -1,4 +1,5 @@
 import { db, schema } from "@/db";
+import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, requireFullAccess } from "@/lib/auth";
 import { awardCredits } from "@/lib/credit-service";
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const requiredFilled = [body.tenantName, body.areaSF, body.netRentPSF, body.annualRent, body.leaseStart, body.leaseExpiry]
     .filter(v => v != null && v !== "").length;
   const credits = requiredFilled >= 6 ? 2 : 1;
-  awardCredits(auth.user.id, credits, "update_retail");
+  const dev = db.select({ name: schema.retailDevelopments.name }).from(schema.retailDevelopments).where(eq(schema.retailDevelopments.id, parseInt(id))).get();
+  awardCredits(auth.user.id, credits, "update_retail", undefined, undefined, `Added tenant ${body.tenantName} to ${dev?.name || "development"}`);
   return NextResponse.json({ ok: true });
 }

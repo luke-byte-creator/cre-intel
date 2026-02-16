@@ -158,8 +158,14 @@ export async function POST(req: NextRequest) {
     ...body,
   }).returning().all();
 
-  // Award credits for adding a comp
-  awardCredits(auth.user.id, CREDIT_CONFIG.ACTIONS.ADD_COMP, "add_comp", comp.id);
+  // Link to properties and companies
+  const { linkComp } = await import("@/lib/comp-linker");
+  linkComp(comp.id);
 
-  return NextResponse.json(comp, { status: 201 });
+  // Award credits for adding a comp
+  awardCredits(auth.user.id, CREDIT_CONFIG.ACTIONS.ADD_COMP, "add_comp", comp.id, undefined, `Added ${(body.type || "").toLowerCase()} comp — ${body.address}`);
+
+  // Re-fetch with linked IDs
+  const [linked] = db.select().from(schema.comps).where(sql`id = ${comp.id}`).all();
+  return NextResponse.json(linked || comp, { status: 201 });
 }

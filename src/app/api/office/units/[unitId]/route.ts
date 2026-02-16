@@ -23,7 +23,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ un
 
   await db.update(schema.officeUnits).set(updates).where(eq(schema.officeUnits.id, id));
 
-  awardCredits(auth.user.id, 1, "update_stacking_plan");
+  // Look up building name for description
+  const [unitRec] = db.select({ buildingId: schema.officeUnits.buildingId }).from(schema.officeUnits).where(eq(schema.officeUnits.id, id)).all();
+  let bldgName = "office building";
+  if (unitRec) {
+    const [b] = db.select({ name: schema.officeBuildings.buildingName, addr: schema.officeBuildings.address }).from(schema.officeBuildings).where(eq(schema.officeBuildings.id, unitRec.buildingId)).all();
+    if (b) bldgName = b.name || b.addr;
+  }
+  awardCredits(auth.user.id, 1, "update_office_unit", id, undefined, `Updated unit in ${bldgName}`);
 
   const [updated] = db.select().from(schema.officeUnits).where(eq(schema.officeUnits.id, id)).all();
   return NextResponse.json(updated);

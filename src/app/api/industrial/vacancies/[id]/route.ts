@@ -21,7 +21,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .where(eq(schema.industrialVacancies.id, Number(id)))
     .run();
 
-  awardCredits(auth.user.id, 1, "update_industrial_vacancy");
+  awardCredits(auth.user.id, 1, "update_industrial_vacancy", undefined, undefined, `Updated vacancy record`);
 
   const updated = db.select().from(schema.industrialVacancies)
     .where(eq(schema.industrialVacancies.id, Number(id))).get();
