@@ -152,10 +152,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "address and type required" }, { status: 400 });
   }
 
+  const { normalizeAddress, normalizeCity } = await import("@/lib/address");
   const [comp] = db.insert(schema.comps).values({
     type: body.type,
     address: body.address,
     ...body,
+    addressNormalized: normalizeAddress(body.address),
+    cityNormalized: normalizeCity(body.city || 'Saskatoon'),
   }).returning().all();
 
   // Link to properties and companies

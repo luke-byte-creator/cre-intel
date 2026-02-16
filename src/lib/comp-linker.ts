@@ -4,24 +4,7 @@
  */
 import { db, schema } from "@/db";
 import { eq, sql } from "drizzle-orm";
-
-function normalizeAddress(addr: string): string {
-  return addr.toLowerCase()
-    .replace(/,?\s*(saskatoon|regina|prince albert|moose jaw|swift current|north battleford|yorkton|sk|saskatchewan).*$/i, '')
-    .replace(/\bave\b/gi, 'avenue')
-    .replace(/\bst\b(?!\w)/gi, 'street')
-    .replace(/\bdr\b/gi, 'drive')
-    .replace(/\bcres\b/gi, 'crescent')
-    .replace(/\bblvd\b/gi, 'boulevard')
-    .replace(/\brd\b/gi, 'road')
-    .replace(/\bpl\b/gi, 'place')
-    .replace(/\bpkwy\b/gi, 'parkway')
-    .replace(/\bct\b/gi, 'court')
-    .replace(/\bcrt\b/gi, 'court')
-    .replace(/\bcirc\b/gi, 'circle')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+import { normalizeAddress, normalizeCity } from "@/lib/address";
 
 function normalizeCompanyName(name: string): string {
   return name.toLowerCase()
@@ -52,23 +35,41 @@ function matchCompany(name: string | null): number | null {
 
 function matchOrCreateProperty(address: string, city?: string | null, province?: string | null, propertyType?: string | null): number {
   const normAddr = normalizeAddress(address);
+  const normCity = normalizeCity(city || 'Saskatoon');
 
-  // Try to find existing property by normalized address
-  const properties = db.select({ id: schema.properties.id, address: schema.properties.address })
-    .from(schema.properties).all();
+  if (!normAddr) {
+    // Can't normalize — create a property anyway
+    const result = db.insert(schema.properties).values({
+      address,
+      city: city || 'Saskatoon',
+      province: province || 'Saskatchewan',
+      propertyType: propertyType || null,
+      addressNormalized: null,
+      cityNormalized: normCity,
+    }).returning({ id: schema.properties.id }).get();
+    return result.id;
+  }
 
-  for (const p of properties) {
-    if (p.address && normalizeAddress(p.address) === normAddr) {
-      return p.id;
-    }
+  // Try to find existing property by normalized address + city
+  const existing = db.all(sql`
+    SELECT id FROM properties 
+    WHERE address_normalized = ${normAddr}
+    AND (city_normalized = ${normCity} OR (city_normalized IS NULL AND ${normCity} IS NULL))
+    LIMIT 1
+  `) as { id: number }[];
+
+  if (existing.length > 0) {
+    return existing[0].id;
   }
 
   // Create new property
   const result = db.insert(schema.properties).values({
-    address: address,
+    address,
     city: city || 'Saskatoon',
     province: province || 'Saskatchewan',
     propertyType: propertyType || null,
+    addressNormalized: normAddr,
+    cityNormalized: normCity,
   }).returning({ id: schema.properties.id }).get();
 
   return result.id;

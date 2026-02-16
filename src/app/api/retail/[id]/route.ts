@@ -13,6 +13,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   for (const k of ["name", "area", "address", "notes"]) {
     if (k in body) updates[k] = body[k] === "" ? null : body[k];
   }
+  if (updates.address) {
+    const { normalizeAddress } = await import("@/lib/address");
+    updates.addressNormalized = normalizeAddress(updates.address as string);
+  }
   await db.update(schema.retailDevelopments).set(updates).where(eq(schema.retailDevelopments.id, parseInt(id)));
   const devName = body.name || (await db.select({ name: schema.retailDevelopments.name }).from(schema.retailDevelopments).where(eq(schema.retailDevelopments.id, parseInt(id))).get())?.name || "development";
   awardCredits(auth.user.id, 1, "update_retail", parseInt(id), undefined, `Updated ${devName}`);

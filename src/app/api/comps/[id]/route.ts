@@ -67,6 +67,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
   }
 
+  // Re-normalize address if address or city changed
+  if (updates.address || updates.city) {
+    const { normalizeAddress, normalizeCity } = await import("@/lib/address");
+    if (updates.address) {
+      updates.addressNormalized = normalizeAddress(updates.address as string);
+    }
+    if (updates.city) {
+      updates.cityNormalized = normalizeCity(updates.city as string);
+    }
+  }
+
   await db.update(schema.comps).set(updates).where(eq(schema.comps.id, compId));
 
   // Count newly filled fields (were null/empty, now have values)

@@ -64,6 +64,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     awardCredits(auth.user.id, 1, "update_multi", bid, undefined, `Updated ${mBldg?.name || mBldg?.addr || "multifamily building"}`);
   }
 
+  if (updates.address || updates.city) {
+    const { normalizeAddress, normalizeCity } = await import("@/lib/address");
+    if (updates.address) updates.addressNormalized = normalizeAddress(updates.address as string);
+    if (updates.city) updates.cityNormalized = normalizeCity(updates.city as string);
+  }
   await db.update(schema.multiBuildings).set(updates).where(eq(schema.multiBuildings.id, bid));
   const [updated] = db.select().from(schema.multiBuildings).where(eq(schema.multiBuildings.id, bid)).all();
   return NextResponse.json(updated);

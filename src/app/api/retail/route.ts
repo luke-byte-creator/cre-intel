@@ -50,10 +50,12 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   if (!body.name) return NextResponse.json({ error: "name required" }, { status: 400 });
 
+  const { normalizeAddress } = await import("@/lib/address");
   db.insert(schema.retailDevelopments).values({
     name: body.name,
     area: body.area || null,
     address: body.address || null,
+    addressNormalized: normalizeAddress(body.address),
     notes: body.notes || null,
   }).run();
 

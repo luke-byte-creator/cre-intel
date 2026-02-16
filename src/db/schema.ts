@@ -57,6 +57,8 @@ export const properties = sqliteTable("properties", {
   neighbourhood: text("neighbourhood"),
   city: text("city"),
   province: text("province"),
+  addressNormalized: text("address_normalized"),
+  cityNormalized: text("city_normalized"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
@@ -102,6 +104,7 @@ export const permits = sqliteTable("permits", {
   issueDate: text("issue_date"),
   status: text("status"),
   rawSource: text("raw_source"),
+  addressNormalized: text("address_normalized"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_permits_property_id").on(table.propertyId),
@@ -259,12 +262,15 @@ export const comps = sqliteTable("comps", {
   researchedUnavailable: integer("researched_unavailable").default(0),
   researchedAt: text("researched_at"),
   researchedBy: integer("researched_by"),
+  addressNormalized: text("address_normalized"),
+  cityNormalized: text("city_normalized"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_comps_type").on(table.type),
   index("idx_comps_property_type").on(table.propertyType),
   index("idx_comps_sale_date").on(table.saleDate),
   index("idx_comps_address").on(table.address),
+  index("idx_comps_address_normalized").on(table.addressNormalized),
   index("idx_comps_seller").on(table.seller),
   index("idx_comps_purchaser").on(table.purchaser),
   index("idx_comps_tenant").on(table.tenant),
@@ -363,6 +369,7 @@ export const officeBuildings = sqliteTable("office_buildings", {
   parcelNumber: text("parcel_number"),
   comments: text("comments"),
   dataSource: text("data_source"),
+  addressNormalized: text("address_normalized"),
   updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_office_buildings_class").on(table.buildingClass),
@@ -433,6 +440,8 @@ export const multiBuildings = sqliteTable("multi_buildings", {
   comments: text("comments"),
   isCondo: integer("is_condo").default(0),
   isSalesComp: integer("is_sales_comp").default(0),
+  addressNormalized: text("address_normalized"),
+  cityNormalized: text("city_normalized"),
   updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_multi_buildings_region").on(table.region),
@@ -448,6 +457,7 @@ export const retailDevelopments = sqliteTable("retail_developments", {
   address: text("address"),
   notes: text("notes"),
   sortOrder: integer("sort_order").default(0),
+  addressNormalized: text("address_normalized"),
   updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
 });
 
@@ -478,6 +488,7 @@ export const industrialVacancies = sqliteTable("industrial_vacancies", {
   quarterRecorded: text("quarter_recorded").notNull(),
   yearRecorded: integer("year_recorded").notNull(),
   notes: text("notes"),
+  addressNormalized: text("address_normalized"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at"),
 }, (table) => [

@@ -55,8 +55,10 @@ export async function POST(req: NextRequest) {
 
   if (!body.address) return NextResponse.json({ error: "address required" }, { status: 400 });
 
+  const { normalizeAddress } = await import("@/lib/address");
   const result = db.insert(schema.officeBuildings).values({
     address: body.address,
+    addressNormalized: normalizeAddress(body.address),
     buildingName: body.buildingName || null,
     buildingClass: body.buildingClass || null,
     totalSF: body.totalSF ? Number(body.totalSF) : null,
