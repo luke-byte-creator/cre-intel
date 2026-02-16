@@ -821,13 +821,7 @@ export default function PipelinePage() {
                           {/* Generate Email */}
                           <GenerateEmail deal={deal} onRefreshDeal={fetchDeals} />
 
-                          {/* Draft Document */}
-                          <div className="pt-1">
-                            <a href={`/drafts?dealId=${deal.id}&deal=${encodeURIComponent(deal.tenantName)}`}
-                              className="text-xs text-accent hover:text-accent/80">
-                              📄 Draft Document
-                            </a>
-                          </div>
+                          {/* Actions */}
 
                           {/* Actions */}
 
