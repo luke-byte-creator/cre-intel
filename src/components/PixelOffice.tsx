@@ -19,10 +19,10 @@ const TILE = 20;
 
 /* ── Cubicle positions (4x2 grid) ── */
 const CUBICLE_W = 120;
-const CUBICLE_H = 120;
-const CUBICLE_GAP = 30;
+const CUBICLE_H = 110;
+const CUBICLE_GAP = 20;
 const CUBICLE_START_X = 40;
-const CUBICLE_START_Y = 220;
+const CUBICLE_START_Y = 215;
 
 function getCubiclePos(index: number) {
   const col = index % 4;
@@ -223,9 +223,9 @@ export default function PixelOffice({ leaderboard = [] }: { leaderboard?: Leader
 
     // "NOVA" nameplate
     ctx.fillStyle = "#F1C40F";
-    ctx.fillRect(ox + 105, 65, 40, 8);
+    ctx.fillRect(ox + 95, 62, 60, 14);
     ctx.fillStyle = "#0f0f1a";
-    ctx.font = "6px monospace";
+    ctx.font = "bold 12px monospace";
     ctx.fillText("NOVA", ox + 110, 72);
 
     // Leather couch
@@ -424,8 +424,8 @@ export default function PixelOffice({ leaderboard = [] }: { leaderboard?: Leader
 
       // Name plate
       ctx.fillStyle = agent.color;
-      ctx.font = "bold 8px monospace";
-      ctx.fillText(agent.name, x + 30, y + CUBICLE_H - 8);
+      ctx.font = "bold 16px monospace";
+      ctx.fillText(agent.name, x + 20, y + CUBICLE_H - 5);
     }
   }, [drawDeskItem]);
 

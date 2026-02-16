@@ -126,6 +126,15 @@ interface ClassifiedDoc extends DocumentInput {
 }
 
 // ---------------------------------------------------------------------------
+// Feature flags
+// ---------------------------------------------------------------------------
+
+// Vision extraction requires direct Anthropic API access (not gateway).
+// The OpenClaw gateway strips image_url content from chat completions.
+// Set to true + configure ANTHROPIC_API_KEY in .env.local when ready.
+const VISION_ENABLED = !!process.env.ANTHROPIC_API_KEY;
+
+// ---------------------------------------------------------------------------
 // Gateway config
 // ---------------------------------------------------------------------------
 
@@ -144,24 +153,93 @@ function getGatewayConfig(): { url: string; token: string } {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function callAI(prompt: string | any[], maxTokens = 4096): Promise<string> {
+  // Check if this is a multimodal (vision) call
+  const isVision = Array.isArray(prompt) && prompt.some(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (p: any) => p.type === "image_url" || p.type === "image"
+  );
+  
+  // Vision calls must go direct to Anthropic API (gateway strips images)
+  if (isVision) {
+    if (!VISION_ENABLED) {
+      throw new Error("Vision extraction disabled — ANTHROPIC_API_KEY not configured");
+    }
+    return callAnthropicDirect(prompt, maxTokens);
+  }
+
   const gw = getGatewayConfig();
-  // Support both simple string prompts and multimodal content arrays
   const content = typeof prompt === "string" ? prompt : prompt;
-  const res = await fetch(gw.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${gw.token}`,
-    },
-    body: JSON.stringify({
-      model: "anthropic/claude-sonnet-4-20250514",
-      max_tokens: maxTokens,
-      messages: [{ role: "user", content }],
-    }),
+  
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+  
+  try {
+    const res = await fetch(gw.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${gw.token}`,
+      },
+      body: JSON.stringify({
+        model: "anthropic/claude-sonnet-4-20250514",
+        max_tokens: maxTokens,
+        messages: [{ role: "user", content }],
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`AI call failed: ${await res.text()}`);
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Direct Anthropic Messages API call for vision (bypasses gateway)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function callAnthropicDirect(content: any[], maxTokens = 4096): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
+  
+  // Convert OpenAI-format image_url to Anthropic-format image blocks
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anthropicContent = content.map((block: any) => {
+    if (block.type === "image_url" && block.image_url?.url?.startsWith("data:")) {
+      const match = block.image_url.url.match(/^data:(image\/\w+);base64,(.+)$/);
+      if (match) {
+        return {
+          type: "image",
+          source: { type: "base64", media_type: match[1], data: match[2] }
+        };
+      }
+    }
+    return block;
   });
-  if (!res.ok) throw new Error(`AI call failed: ${await res.text()}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000);
+  
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: maxTokens,
+        messages: [{ role: "user", content: anthropicContent }],
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Anthropic API call failed: ${await res.text()}`);
+    const data = await res.json();
+    return data.content?.[0]?.text || "";
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // Convert PDF pages to base64 JPEG images using pdftoppm
@@ -177,8 +255,8 @@ async function pdfPagesToBase64(filePath: string, maxPages = 8): Promise<string[
     const totalPages = pagesMatch ? parseInt(pagesMatch[1]) : 1;
     const pagesToProcess = Math.min(totalPages, maxPages);
     
-    // Convert pages to JPEG
-    execSync(`pdftoppm -f 1 -l ${pagesToProcess} -jpeg -r 150 "${filePath}" "${tmpDir}/page"`, { timeout: 30000 });
+    // Convert pages to JPEG — use 100 DPI to keep payload under gateway body limit
+    execSync(`pdftoppm -f 1 -l ${pagesToProcess} -jpeg -r 100 "${filePath}" "${tmpDir}/page"`, { timeout: 30000 });
     
     // Read and encode
     const images: string[] = [];
@@ -242,8 +320,34 @@ async function extractText(filePath: string): Promise<string> {
     const pageCount = data.numpages || 1;
     const charsPerPage = textLen / pageCount;
     if (charsPerPage < 100) {
-      // Likely scanned — mark for vision extraction
+      if (!VISION_ENABLED) {
+        console.log(`[extract] "${path.basename(filePath)}": scanned PDF detected but vision disabled — skipping`);
+        return `[SKIPPED_SCANNED:${path.basename(filePath)}]`;
+      }
       return `[SCANNED_PDF:${filePath}]`;
+    }
+    // For lease-type documents (detected by filename heuristics), always prefer vision
+    // extraction since PDF text extraction often has encoding issues that garble
+    // critical details like rent amounts, dates, and names. Text extraction is
+    // kept as fallback for other document types (spreadsheets, etc).
+    const fn = path.basename(filePath).toLowerCase();
+    const isLikelyLease = fn.includes("lease") || fn.includes("otl") || fn.includes("offer to") || fn.includes("sublease");
+    if (isLikelyLease && pageCount <= 50 && VISION_ENABLED) {
+      console.log(`[extract] "${path.basename(filePath)}": lease document — using vision for reliability`);
+      return `[SCANNED_PDF:${filePath}]`;
+    }
+    // Detect garbled text (OCR artifacts, encoding issues) — high ratio of non-printable
+    // or unusual characters suggests the text extraction is unreliable
+    const printable = data.text.replace(/[\x20-\x7E\n\r\t]/g, "").length;
+    const total = data.text.length;
+    const garbledRatio = total > 0 ? printable / total : 0;
+    if (garbledRatio > 0.15 && pageCount <= 50) {
+      if (!VISION_ENABLED) {
+        console.log(`[extract] "${path.basename(filePath)}": garbled text (${(garbledRatio * 100).toFixed(1)}% non-ASCII) but vision disabled — using text anyway`);
+      } else {
+        console.log(`[extract] "${path.basename(filePath)}": garbled text detected (${(garbledRatio * 100).toFixed(1)}% non-ASCII) — using vision`);
+        return `[SCANNED_PDF:${filePath}]`;
+      }
     }
     return data.text;
   }
@@ -314,7 +418,7 @@ ${summaries.join("\n\n")}`;
 // ---------------------------------------------------------------------------
 
 function buildExtractionPrompt(docType: string, text: string, filename: string): string {
-  const truncatedText = truncate(text, 30000);
+  const truncatedText = truncate(text, 80000);
 
   const commonInstructions = `Return ONLY valid JSON. For any field not found, use null. Include "page" (best guess or "unknown") and "confidence" ("high", "medium", or "low") for each value.`;
 
@@ -685,7 +789,8 @@ function mergeExtractions(
 
     if (doc.classifiedType === "rent_roll") {
       if (data.tenants && Array.isArray(data.tenants)) {
-        inputs.tenants = data.tenants.map(
+        if (!inputs.tenants) inputs.tenants = [];
+        const newTenants = data.tenants.map(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (t: any) => ({
             tenantName: t.tenantName || "Unknown",
@@ -702,6 +807,8 @@ function mergeExtractions(
             isVacant: t.isVacant || false,
           })
         );
+        inputs.tenants.push(...newTenants);
+        console.log(`[extract] rent_roll "${src}": added ${newTenants.length} tenants (total now: ${inputs.tenants.length})`);
         // Compute total base rent from rent roll
         const rrTotal = inputs.tenants!.reduce((sum, t) => sum + (t.baseRentAnnual || 0), 0);
         if (rrTotal > 0) {
@@ -753,8 +860,10 @@ function mergeExtractions(
 
     if (doc.classifiedType === "lease_agreement") {
       // Each lease becomes one tenant in the rent roll
-      if (data.tenant) {
-        const t = data.tenant;
+      // Handle alternate keys: data.tenant, data.tenants[0], data.lease, data.lessee
+      const rawTenant = data.tenant || data.lease || data.lessee || (Array.isArray(data.tenants) && data.tenants[0]) || null;
+      if (rawTenant) {
+        const t = rawTenant;
         const tenantName = extractFieldValue(t.tenantName).value;
         const sf = extractFieldValue(t.sf).value;
         const baseRentPSF = extractFieldValue(t.baseRentPSF).value;
@@ -785,7 +894,14 @@ function mergeExtractions(
           tenant.baseRentPSF = tenant.baseRentAnnual / tenant.sf;
         }
         
-        inputs.tenants.push(tenant);
+        // Skip empty tenant rows (all key fields null/zero)
+        const hasData = tenant.tenantName && !tenant.tenantName.startsWith("Unknown") || tenant.sf || tenant.baseRentPSF || tenant.baseRentAnnual;
+        if (!hasData) {
+          console.log(`[extract] lease "${src}": skipping empty tenant row (all values null)`);
+        } else {
+          inputs.tenants.push(tenant);
+          console.log(`[extract] lease "${src}": added tenant "${tenant.tenantName}" (${tenant.sf || '?'} SF @ $${tenant.baseRentPSF || '?'}/SF)`);
+        }
         
         auditTrail.push({
           field: `tenant:${tenant.tenantName}`,
@@ -796,6 +912,8 @@ function mergeExtractions(
           sourceText: "",
           reasoning: `Extracted from individual lease document: ${src}`,
         });
+      } else {
+        console.log(`[extract] lease "${src}": no tenant data found in AI response`);
       }
       
       // Also capture property info from leases
@@ -1077,12 +1195,14 @@ export async function extractFromDocuments(
 
   for (const doc of classifiedDocs) {
     if (!doc.text) {
+      console.log(`[extract] SKIP "${doc.filename}" — no text content`);
       warnings.push(`Skipping ${doc.filename} — no text content`);
       continue;
     }
     
+    console.log(`[extract] Processing "${doc.filename}" (type: ${doc.classifiedType})`);
     try {
-      // Handle scanned PDFs with vision
+      // Handle scanned PDFs — use vision (send page images to AI)
       if (doc.text.startsWith("[SCANNED_PDF:")) {
         const scannedPath = doc.text.match(/\[SCANNED_PDF:(.*)\]/)?.[1];
         if (!scannedPath) {
@@ -1091,25 +1211,90 @@ export async function extractFromDocuments(
         }
         
         try {
-          const ocrText = await ocrPdfToText(scannedPath, 10);
-          if (!ocrText || ocrText.length < 50) {
-            warnings.push(`OCR could not extract readable text from ${doc.filename}`);
+          // Send pages in batches to stay under gateway body size limit (~1MB).
+          // Use low DPI (72) + JPEG compression to keep each batch small.
+          // For leases, send up to 15 pages in batches of 5.
+          const maxPages = doc.classifiedType === "lease_agreement" ? 15 : 8;
+          const BATCH_SIZE = 5;
+          console.log(`[extract] Vision extraction for "${doc.filename}" (${maxPages} pages max, batches of ${BATCH_SIZE})`);
+          const allPageImages = await pdfPagesToBase64(scannedPath, maxPages);
+          
+          if (!allPageImages.length) {
+            warnings.push(`Could not convert PDF to images: ${doc.filename}`);
             continue;
           }
-          
-          // Replace the doc's text with OCR result and process normally
-          doc.text = ocrText;
-          const prompt = buildExtractionPrompt(doc.classifiedType, ocrText, doc.filename);
-          const response = await callAI(prompt);
-          const data = safeParseJSON(response);
-          if (data) {
-            extractions.push({ doc, data });
+
+          // Split into batches and call AI for each batch
+          const batchResults: string[] = [];
+          for (let batchStart = 0; batchStart < allPageImages.length; batchStart += BATCH_SIZE) {
+            const batch = allPageImages.slice(batchStart, batchStart + BATCH_SIZE);
+            const batchNum = Math.floor(batchStart / BATCH_SIZE) + 1;
+            const totalBatches = Math.ceil(allPageImages.length / BATCH_SIZE);
+            
+            const isFirstBatch = batchStart === 0;
+            const textPrompt = isFirstBatch
+              ? buildExtractionPrompt(doc.classifiedType, `[Scanned document pages ${batchStart + 1}-${batchStart + batch.length} of ${allPageImages.length}]`, doc.filename)
+              : `Continue extracting from "${doc.filename}" — these are pages ${batchStart + 1}-${batchStart + batch.length} of ${allPageImages.length}. Extract any NEW information found on these pages (tenant name, lease terms, rent, dates, square footage, etc). Return ONLY valid JSON with any fields found. Use null for fields not visible on these pages.`;
+            
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const content: any[] = [{ type: "text", text: textPrompt }];
+            for (const img of batch) {
+              content.push({
+                type: "image_url",
+                image_url: { url: `data:image/jpeg;base64,${img}` },
+              });
+            }
+
+            try {
+              console.log(`[extract] "${doc.filename}" batch ${batchNum}/${totalBatches} (${batch.length} pages)`);
+              const response = await callAI(content, 4096);
+              batchResults.push(response);
+            } catch (batchErr) {
+              console.log(`[extract] "${doc.filename}" batch ${batchNum} failed: ${(batchErr as Error).message}`);
+              warnings.push(`Vision batch ${batchNum} failed for ${doc.filename}: ${(batchErr as Error).message}`);
+            }
+          }
+
+          // Merge batch results — first batch has the full structure, subsequent batches fill gaps
+          let mergedData = null;
+          for (const result of batchResults) {
+            const parsed = safeParseJSON(result);
+            if (!parsed) continue;
+            if (!mergedData) {
+              mergedData = parsed;
+            } else {
+              // Merge: fill null/missing fields from later batches
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              function deepMerge(target: any, source: any) {
+                for (const key of Object.keys(source)) {
+                  if (source[key] === null || source[key] === undefined) continue;
+                  if (target[key] === null || target[key] === undefined) {
+                    target[key] = source[key];
+                  } else if (typeof source[key] === "object" && typeof target[key] === "object" && !Array.isArray(source[key])) {
+                    deepMerge(target[key], source[key]);
+                  }
+                }
+              }
+              deepMerge(mergedData, parsed);
+            }
+          }
+
+          if (mergedData) {
+            extractions.push({ doc, data: mergedData });
+            console.log(`[extract] SUCCESS "${doc.filename}" via vision (${allPageImages.length} pages, ${batchResults.length} batches)`);
           } else {
-            warnings.push(`Failed to parse AI response for scanned ${doc.filename}`);
+            console.log(`[extract] FAIL "${doc.filename}" — no parseable results from ${batchResults.length} batches`);
+            warnings.push(`Failed to parse AI response for ${doc.filename}`);
           }
         } catch (err) {
-          warnings.push(`OCR extraction failed for ${doc.filename}: ${(err as Error).message}`);
+          console.log(`[extract] FAIL "${doc.filename}" vision — ${(err as Error).message}`);
+          warnings.push(`Vision extraction failed for ${doc.filename}: ${(err as Error).message}`);
         }
+        continue;
+      }
+      
+      if (doc.text.startsWith("[SKIPPED_SCANNED:")) {
+        warnings.push(`Skipping ${doc.filename} — scanned PDF (vision extraction not configured). Add ANTHROPIC_API_KEY to .env.local to enable.`);
         continue;
       }
       
@@ -1123,16 +1308,23 @@ export async function extractFromDocuments(
       const data = safeParseJSON(response);
       if (data) {
         extractions.push({ doc, data });
+        console.log(`[extract] SUCCESS "${doc.filename}" (${doc.classifiedType})`);
       } else {
+        console.log(`[extract] FAIL "${doc.filename}" — could not parse AI JSON response`);
         warnings.push(`Failed to parse AI response for ${doc.filename}`);
       }
     } catch (err) {
+      console.log(`[extract] FAIL "${doc.filename}" — ${(err as Error).message}`);
       warnings.push(`Extraction failed for ${doc.filename}: ${(err as Error).message}`);
     }
   }
 
+  console.log(`[extract] Extraction complete: ${extractions.length}/${classifiedDocs.length} documents succeeded`);
+
   // Step 4: Merge
   const { inputs, auditTrail, conflicts } = mergeExtractions(classifiedDocs, extractions);
+  
+  console.log(`[extract] Merge complete: ${inputs.tenants?.length || 0} tenants from ${documents.length} documents`);
 
   // Step 4b: If we built a rent roll from individual leases, compute aggregates
   if (inputs.tenants && inputs.tenants.length > 0) {

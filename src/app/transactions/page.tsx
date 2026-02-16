@@ -197,27 +197,68 @@ export default function TransactionsPage() {
     else setSelected(new Set(comps.map(r => r.id)));
   }
 
-  function copySelected() {
+  function copySelected(detailed = false) {
     const sel = comps.filter(r => selected.has(r.id));
     if (!sel.length) return;
     let header: string;
     let rows: string[];
     if (type === "Sale") {
-      header = "Address\tCity\tDate\tPrice\tPrice/SF\tSize (SF)\tProperty Type\tVendor\tPurchaser\tSource";
-      rows = sel.map(r => [
-        r.address + (r.unit ? ` ${r.unit}` : ""), r.city || "", r.saleDate ? fmtDate(r.saleDate) : "",
-        r.salePrice != null ? fmtPrice(r.salePrice) : "", r.pricePSF != null ? fmtPSF(r.pricePSF) : "",
-        r.areaSF != null ? fmtNum(r.areaSF) : "", r.propertyType || "", r.seller || "", r.purchaser || "",
-        r.source || "",
-      ].join("\t"));
+      if (detailed) {
+        header = "Address\tCity\tProperty Type\tProperty Name\tInvestment Type\tSale Date\tSale Price\tPrice/SF\tPrice/Acre\tPrice/Unit\tVendor\tPurchaser\tArms Length\tPortfolio\tCap Rate\tNOI\tStabilized Cap Rate\tStabilized NOI\tVacancy Rate\tOPEX Ratio\t# Units\tBuilding Area (SF)\tOffice Area (SF)\tLand (Acres)\tLand (SF)\tYear Built\tZoning\tConstruction Class\tCeiling Height\tLoading Docks\tDrive-In Doors\t# Buildings\t# Stories\tRoll Number\tSource\tComments";
+        rows = sel.map(r => [
+          r.address + (r.unit ? ` ${r.unit}` : ""), r.city || "", r.propertyType || "", r.propertyName || "",
+          r.investmentType || "", r.saleDate ? fmtDate(r.saleDate) : "", r.salePrice != null ? fmtPrice(r.salePrice) : "",
+          r.pricePSF != null ? fmtPSF(r.pricePSF) : "", r.pricePerAcre != null ? fmtPrice(r.pricePerAcre) : "",
+          r.pricePerUnit != null ? fmtPrice(r.pricePerUnit) : "", r.seller || "", r.purchaser || "",
+          r.armsLength != null ? (r.armsLength ? "Yes" : "No") : "", r.portfolio || "",
+          r.capRate != null ? fmtCap(r.capRate) : "", r.noi != null ? fmtPrice(r.noi) : "",
+          r.stabilizedCapRate != null ? fmtCap(r.stabilizedCapRate) : "", r.stabilizedNOI != null ? fmtPrice(r.stabilizedNOI) : "",
+          r.vacancyRate != null ? r.vacancyRate.toFixed(1) + "%" : "", r.opexRatio != null ? r.opexRatio.toFixed(1) + "%" : "",
+          r.numUnits?.toString() || "", r.areaSF != null ? fmtNum(r.areaSF) : "", r.officeSF != null ? fmtNum(r.officeSF) : "",
+          r.landAcres?.toString() || "", r.landSF != null ? fmtNum(r.landSF) : "", r.yearBuilt?.toString() || "",
+          r.zoning || "", r.constructionClass || "", r.ceilingHeight ? r.ceilingHeight + " ft" : "",
+          r.loadingDocks?.toString() || "", r.driveInDoors?.toString() || "", r.numBuildings?.toString() || "",
+          r.numStories?.toString() || "", r.rollNumber || "", r.source || "", r.comments || "",
+        ].join("\t"));
+      } else {
+        header = "Address\tCity\tDate\tPrice\tPrice/SF\tSize (SF)\tProperty Type\tVendor\tPurchaser\tSource";
+        rows = sel.map(r => [
+          r.address + (r.unit ? ` ${r.unit}` : ""), r.city || "", r.saleDate ? fmtDate(r.saleDate) : "",
+          r.salePrice != null ? fmtPrice(r.salePrice) : "", r.pricePSF != null ? fmtPSF(r.pricePSF) : "",
+          r.areaSF != null ? fmtNum(r.areaSF) : "", r.propertyType || "", r.seller || "", r.purchaser || "",
+          r.source || "",
+        ].join("\t"));
+      }
     } else {
-      header = "Address\tCity\tTenant\tRent/SF\tSize (SF)\tLease Start\tExpiry\tProperty Type\tLandlord\tSource";
-      rows = sel.map(r => [
-        r.address + (r.unit ? ` ${r.unit}` : ""), r.city || "", r.tenant || "",
-        r.netRentPSF != null ? fmtPSF(r.netRentPSF) : "", r.areaSF != null ? fmtNum(r.areaSF) : "",
-        r.leaseStart ? fmtDate(r.leaseStart) : "", r.leaseExpiry ? fmtDate(r.leaseExpiry) : "",
-        r.propertyType || "", r.landlord || "", r.source || "",
-      ].join("\t"));
+      if (detailed) {
+        header = "Address\tCity\tProperty Type\tProperty Name\tTenant\tLandlord\tLease Type\tRenewal\tLease Start\tLease Expiry\tTerm (months)\tNet Rent/SF/yr\tAnnual Rent\tOperating Cost/SF\tTI Allowance\tFree Rent\tFixturing Period\tRent Steps\tBuilding Area (SF)\tOffice Area (SF)\tLand (Acres)\tLand (SF)\tYear Built\tZoning\tConstruction Class\tCeiling Height\tLoading Docks\tDrive-In Doors\t# Buildings\t# Stories\tRoll Number\tSource\tComments";
+        rows = sel.map(r => {
+          let steps = "";
+          try { const p = JSON.parse(r.rentSteps || "[]"); steps = p.map((s: any) => `${s.date || s.year || ""}: ${s.rate || s.rentPSF || ""}`).join("; "); } catch { steps = r.rentSteps || ""; }
+          return [
+            r.address + (r.unit ? ` ${r.unit}` : ""), r.city || "", r.propertyType || "", r.propertyName || "",
+            r.tenant || "", r.landlord || "", r.leaseType || "",
+            r.isRenewal != null ? (r.isRenewal ? "Yes" : "No") : "",
+            r.leaseStart ? fmtDate(r.leaseStart) : "", r.leaseExpiry ? fmtDate(r.leaseExpiry) : "",
+            r.termMonths?.toString() || "", r.netRentPSF != null ? fmtPSF(r.netRentPSF) : "",
+            r.annualRent != null ? fmtPrice(r.annualRent) : "", r.operatingCost != null ? fmtPSF(r.operatingCost) : "",
+            r.improvementAllowance || "", r.freeRentPeriod || "", r.fixturingPeriod || "", steps,
+            r.areaSF != null ? fmtNum(r.areaSF) : "", r.officeSF != null ? fmtNum(r.officeSF) : "",
+            r.landAcres?.toString() || "", r.landSF != null ? fmtNum(r.landSF) : "", r.yearBuilt?.toString() || "",
+            r.zoning || "", r.constructionClass || "", r.ceilingHeight ? r.ceilingHeight + " ft" : "",
+            r.loadingDocks?.toString() || "", r.driveInDoors?.toString() || "", r.numBuildings?.toString() || "",
+            r.numStories?.toString() || "", r.rollNumber || "", r.source || "", r.comments || "",
+          ].join("\t");
+        });
+      } else {
+        header = "Address\tCity\tTenant\tRent/SF\tSize (SF)\tLease Start\tExpiry\tProperty Type\tLandlord\tSource";
+        rows = sel.map(r => [
+          r.address + (r.unit ? ` ${r.unit}` : ""), r.city || "", r.tenant || "",
+          r.netRentPSF != null ? fmtPSF(r.netRentPSF) : "", r.areaSF != null ? fmtNum(r.areaSF) : "",
+          r.leaseStart ? fmtDate(r.leaseStart) : "", r.leaseExpiry ? fmtDate(r.leaseExpiry) : "",
+          r.propertyType || "", r.landlord || "", r.source || "",
+        ].join("\t"));
+      }
     }
     const text = header + "\n" + rows.join("\n");
     const thCells = header.split("\t").map(h => `<th style="border:1px solid #ccc;padding:6px 10px;background:#f5f5f5;font-weight:bold;text-align:left;font-size:13px">${h}</th>`).join("");
@@ -318,9 +359,13 @@ export default function TransactionsPage() {
       {/* Bulk actions */}
       {selected.size > 0 && (
         <div className="flex items-center gap-3">
-          <button onClick={copySelected}
+          <button onClick={() => copySelected(false)}
             className="bg-accent/15 text-accent hover:bg-accent/25 px-4 py-2 rounded-lg text-sm font-medium transition">
             {copied ? "✓ Copied!" : `Copy ${selected.size} Selected`}
+          </button>
+          <button onClick={() => copySelected(true)}
+            className="bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 px-4 py-2 rounded-lg text-sm font-medium transition">
+            Detailed Copy
           </button>
         </div>
       )}
@@ -516,6 +561,9 @@ function formatRentSteps(raw: string | null): string {
 }
 
 function ExpandedDetail({ comp: r, type, onEdit, onFlagUnavailable }: { comp: Comp; type: string; onEdit: () => void; onFlagUnavailable: (id: number) => void }) {
+  const [requestingInfo, setRequestingInfo] = useState(false);
+  const [emailDraft, setEmailDraft] = useState<{ subject: string; body: string } | null>(null);
+  const [emailCopied, setEmailCopied] = useState(false);
   const keyFields = type === "Sale" ? SALE_KEY_FIELDS : LEASE_KEY_FIELDS;
 
   // Show all fields always — empty ones show "—" so users know what's available
@@ -662,6 +710,42 @@ function ExpandedDetail({ comp: r, type, onEdit, onFlagUnavailable }: { comp: Co
 
       <div className="pt-3 border-t border-card-border flex items-center gap-4 flex-wrap">
         <button onClick={onEdit} className="text-xs text-accent hover:text-accent/80 font-medium transition">Edit Comp</button>
+        <button
+          onClick={async () => {
+            if (emailDraft) { setEmailDraft(null); return; }
+            setRequestingInfo(true);
+            const missingFields = Array.from(keyFields).filter(f => {
+              const v = (r as any)[f];
+              return v === null || v === undefined || v === "" || v === 0;
+            });
+            try {
+              const compData = {
+                address: r.address, unit: r.unit, city: r.city, propertyType: r.propertyType,
+                propertyName: r.propertyName, seller: r.seller, purchaser: r.purchaser,
+                landlord: r.landlord, tenant: r.tenant, saleDate: r.saleDate,
+                salePrice: r.salePrice, pricePSF: r.pricePSF, areaSF: r.areaSF,
+                netRentPSF: r.netRentPSF, annualRent: r.annualRent,
+                leaseStart: r.leaseStart, leaseExpiry: r.leaseExpiry,
+                capRate: r.capRate, noi: r.noi,
+              };
+              const res = await fetch("/api/comps/request-info", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ comp: compData, type, missingFields }),
+              });
+              if (res.ok) {
+                const data = await res.json();
+                setEmailDraft(data);
+              }
+            } catch {}
+            setRequestingInfo(false);
+            track("request_info", "comps", { compId: r.id, type });
+          }}
+          disabled={requestingInfo}
+          className="text-xs text-purple-400 hover:text-purple-300 font-medium transition flex items-center gap-1.5 disabled:opacity-50"
+        >
+          {requestingInfo ? "Generating..." : emailDraft ? "Hide Email" : "✉ Request Info"}
+        </button>
         {r.isResearched ? (
           <span className="text-xs text-emerald-400 flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
@@ -678,6 +762,41 @@ function ExpandedDetail({ comp: r, type, onEdit, onFlagUnavailable }: { comp: Co
           </button>
         )}
       </div>
+
+      {/* Generated Email Draft */}
+      {emailDraft && (
+        <div className="mt-3 p-4 bg-white/[0.03] border border-card-border rounded-lg space-y-3">
+          <div>
+            <span className="text-[10px] text-muted uppercase tracking-wider">Subject</span>
+            <p className="text-sm text-foreground font-medium">{emailDraft.subject}</p>
+          </div>
+          <div>
+            <span className="text-[10px] text-muted uppercase tracking-wider">Body</span>
+            <p className="text-sm text-foreground whitespace-pre-line leading-relaxed">{emailDraft.body}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(`Subject: ${emailDraft.subject}\n\n${emailDraft.body}`);
+                setEmailCopied(true);
+                setTimeout(() => setEmailCopied(false), 2000);
+              }}
+              className="text-xs bg-accent/15 text-accent hover:bg-accent/25 px-3 py-1.5 rounded-md font-medium transition"
+            >
+              {emailCopied ? "✓ Copied!" : "Copy Email"}
+            </button>
+            <button
+              onClick={() => {
+                const mailto = `mailto:?subject=${encodeURIComponent(emailDraft.subject)}&body=${encodeURIComponent(emailDraft.body)}`;
+                window.open(mailto);
+              }}
+              className="text-xs bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 px-3 py-1.5 rounded-md font-medium transition"
+            >
+              Open in Email Client
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

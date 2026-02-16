@@ -6,6 +6,9 @@ import { extractFromDocuments } from "@/lib/extraction/extract-documents";
 import path from "path";
 import fs from "fs";
 
+// Vision extraction of multiple documents can take 3-5 minutes
+export const maxDuration = 300;
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth(req);
   if (auth instanceof Response) return auth;
@@ -43,6 +46,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Merge extracted inputs with any existing inputs
     const existingInputs = analysis.inputs ? JSON.parse(analysis.inputs) : {};
     const mergedInputs = { ...existingInputs, ...result.inputs };
+    // Store warnings for debugging
+    mergedInputs._extractionWarnings = result.warnings;
+    mergedInputs._extractionStats = {
+      docsProcessed: documents.length,
+      tenantsExtracted: result.inputs.tenants?.length || 0,
+      timestamp: new Date().toISOString(),
+    };
 
     await db
       .update(schema.underwritingAnalyses)

@@ -931,7 +931,7 @@ export default function UnderwritePage() {
           {/* Section 1: Property (compact row) */}
           <div className="bg-card border border-card-border rounded-xl p-4">
             <h3 className="text-xs font-semibold text-muted mb-2 uppercase tracking-wide">Property</h3>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="text-[11px] text-gray-500">Property Name</label>
                 <input
@@ -949,14 +949,14 @@ export default function UnderwritePage() {
                     type="text"
                     value={inputs.propertyAddress || ""}
                     onChange={e => updateField("propertyAddress", e.target.value)}
-                    className="flex-1 bg-white/[0.04] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100"
+                    className="flex-1 min-w-0 bg-white/[0.04] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100"
                     placeholder="Address"
                   />
                   <input
                     type="text"
                     value={inputs.city || ""}
                     onChange={e => updateField("city", e.target.value)}
-                    className="w-32 bg-white/[0.04] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100"
+                    className="w-28 shrink-0 bg-white/[0.04] border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100"
                     placeholder="City"
                   />
                 </div>
@@ -992,20 +992,20 @@ export default function UnderwritePage() {
                 className="text-xs text-accent hover:text-accent/80 transition"
               >+ Add Tenant</button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+            <div className="overflow-x-auto -mx-4 px-4">
+              <table className="w-full text-xs" style={{ minWidth: '720px' }}>
                 <thead>
                   <tr className="text-gray-500 border-b border-gray-700">
-                    <th className="text-left py-1.5 px-1 font-medium">Tenant</th>
-                    <th className="text-left py-1.5 px-1 font-medium">Suite</th>
-                    <th className="text-right py-1.5 px-1 font-medium">SF</th>
-                    <th className="text-left py-1.5 px-1 font-medium">Lease Start</th>
-                    <th className="text-left py-1.5 px-1 font-medium">Lease Expiry</th>
-                    <th className="text-right py-1.5 px-1 font-medium">Rent PSF</th>
-                    <th className="text-right py-1.5 px-1 font-medium">Annual Rent</th>
-                    <th className="text-left py-1.5 px-1 font-medium">Recovery</th>
-                    <th className="text-right py-1.5 px-1 font-medium">Rec PSF</th>
-                    <th className="py-1.5 px-1"></th>
+                    <th className="text-left py-1.5 px-1.5 font-medium" style={{ minWidth: '120px' }}>Tenant</th>
+                    <th className="text-left py-1.5 px-1.5 font-medium" style={{ width: '60px' }}>Suite</th>
+                    <th className="text-right py-1.5 px-1.5 font-medium" style={{ width: '70px' }}>SF</th>
+                    <th className="text-left py-1.5 px-1.5 font-medium" style={{ width: '95px' }}>Start</th>
+                    <th className="text-left py-1.5 px-1.5 font-medium" style={{ width: '95px' }}>Expiry</th>
+                    <th className="text-right py-1.5 px-1.5 font-medium" style={{ width: '70px' }}>$/SF</th>
+                    <th className="text-right py-1.5 px-1.5 font-medium" style={{ width: '85px' }}>Annual</th>
+                    <th className="text-left py-1.5 px-1.5 font-medium" style={{ width: '75px' }}>Recovery</th>
+                    <th className="text-right py-1.5 px-1.5 font-medium" style={{ width: '60px' }}>Rec PSF</th>
+                    <th className="py-1.5 px-1" style={{ width: '28px' }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1013,38 +1013,40 @@ export default function UnderwritePage() {
                     const tMeta = fieldMeta[`tenant_${i}`];
                     return (
                       <tr key={i} className="border-b border-gray-800 hover:bg-white/[0.02]">
-                        <td className="py-1 px-1 flex items-center gap-1">
-                          {tMeta && <ConfidenceDot meta={tMeta} />}
-                          <input className="w-full bg-transparent text-gray-100 text-xs" value={t.tenantName} onChange={e => {
-                            const updated = [...tenants]; updated[i] = { ...updated[i], tenantName: e.target.value };
-                            setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
-                          }} />
+                        <td className="py-1 px-1.5">
+                          <div className="flex items-center gap-1">
+                            {tMeta && <ConfidenceDot meta={tMeta} />}
+                            <input className="w-full min-w-0 bg-transparent text-gray-100 text-xs" value={t.tenantName} onChange={e => {
+                              const updated = [...tenants]; updated[i] = { ...updated[i], tenantName: e.target.value };
+                              setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
+                            }} />
+                          </div>
                         </td>
-                        <td className="py-1 px-1"><input className="w-16 bg-transparent text-gray-100 text-xs" value={t.suite || ""} onChange={e => {
+                        <td className="py-1 px-1.5"><input className="w-full bg-transparent text-gray-100 text-xs" value={t.suite || ""} onChange={e => {
                           const updated = [...tenants]; updated[i] = { ...updated[i], suite: e.target.value };
                           setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
                         }} /></td>
-                        <td className="py-1 px-1"><input className="w-16 bg-transparent text-gray-100 text-xs text-right" type="number" value={t.sf || ""} onChange={e => {
+                        <td className="py-1 px-1.5"><input className="w-full bg-transparent text-gray-100 text-xs text-right" type="number" value={t.sf || ""} onChange={e => {
                           const sf = Number(e.target.value) || 0;
                           const updated = [...tenants]; updated[i] = { ...updated[i], sf, baseRentAnnual: sf * (updated[i].baseRentPSF || 0) };
                           setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
                         }} /></td>
-                        <td className="py-1 px-1"><input className="w-24 bg-transparent text-gray-100 text-xs" value={t.leaseStart || ""} onChange={e => {
+                        <td className="py-1 px-1.5"><input className="w-full bg-transparent text-gray-100 text-xs" value={t.leaseStart || ""} onChange={e => {
                           const updated = [...tenants]; updated[i] = { ...updated[i], leaseStart: e.target.value };
                           setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
                         }} /></td>
-                        <td className="py-1 px-1"><input className="w-24 bg-transparent text-gray-100 text-xs" value={t.leaseExpiry || ""} onChange={e => {
+                        <td className="py-1 px-1.5"><input className="w-full bg-transparent text-gray-100 text-xs" value={t.leaseExpiry || ""} onChange={e => {
                           const updated = [...tenants]; updated[i] = { ...updated[i], leaseExpiry: e.target.value };
                           setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
                         }} /></td>
-                        <td className="py-1 px-1"><input className="w-16 bg-transparent text-gray-100 text-xs text-right" type="number" step="0.01" value={t.baseRentPSF || ""} onChange={e => {
+                        <td className="py-1 px-1.5"><input className="w-full bg-transparent text-gray-100 text-xs text-right" type="number" step="0.01" value={t.baseRentPSF || ""} onChange={e => {
                           const psf = Number(e.target.value) || 0;
                           const updated = [...tenants]; updated[i] = { ...updated[i], baseRentPSF: psf, baseRentAnnual: (updated[i].sf || 0) * psf };
                           setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
                         }} /></td>
-                        <td className="py-1 px-1 text-right text-gray-300">{formatNumber(t.baseRentAnnual)}</td>
-                        <td className="py-1 px-1">
-                          <select className="bg-transparent text-gray-100 text-xs" value={t.recoveryType || ""} onChange={e => {
+                        <td className="py-1 px-1.5 text-right text-gray-300 whitespace-nowrap">{formatNumber(t.baseRentAnnual)}</td>
+                        <td className="py-1 px-1.5">
+                          <select className="w-full bg-transparent text-gray-100 text-xs" value={t.recoveryType || ""} onChange={e => {
                             const updated = [...tenants]; updated[i] = { ...updated[i], recoveryType: e.target.value };
                             setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
                           }}>
@@ -1053,7 +1055,7 @@ export default function UnderwritePage() {
                             <option value="Semi-Gross">Semi-Gross</option>
                           </select>
                         </td>
-                        <td className="py-1 px-1"><input className="w-14 bg-transparent text-gray-100 text-xs text-right" type="number" step="0.01" value={t.recoveryPSF || ""} onChange={e => {
+                        <td className="py-1 px-1.5"><input className="w-full bg-transparent text-gray-100 text-xs text-right" type="number" step="0.01" value={t.recoveryPSF || ""} onChange={e => {
                           const updated = [...tenants]; updated[i] = { ...updated[i], recoveryPSF: Number(e.target.value) || 0 };
                           setInputs(prev => ({ ...prev, tenants: updated })); debouncedSave();
                         }} /></td>
@@ -1069,13 +1071,13 @@ export default function UnderwritePage() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-gray-600 text-gray-300 font-medium text-xs">
-                    <td className="py-1.5 px-1" colSpan={2}>Summary</td>
-                    <td className="py-1.5 px-1 text-right">{formatNumber(totalSF)} SF</td>
-                    <td colSpan={3} className="py-1.5 px-1 text-center text-gray-500">
-                      {occupancy}% occ · ${wtdAvgRent.toFixed(2)} wtd avg · {walt.toFixed(1)} yr WALT
+                    <td className="py-2 px-1.5" colSpan={2}>Summary</td>
+                    <td className="py-2 px-1.5 text-right whitespace-nowrap">{formatNumber(totalSF)} SF</td>
+                    <td colSpan={3} className="py-2 px-1.5 text-center text-gray-500 whitespace-nowrap">
+                      {occupancy}% occ · ${wtdAvgRent.toFixed(2)}/SF · {walt.toFixed(1)}yr WALT
                     </td>
-                    <td className="py-1.5 px-1 text-right">${formatNumber(totalRent)}</td>
-                    <td colSpan={3} className="py-1.5 px-1 text-right text-gray-500">
+                    <td className="py-2 px-1.5 text-right whitespace-nowrap">${formatNumber(totalRent)}</td>
+                    <td colSpan={3} className="py-2 px-1.5 text-right text-gray-500 whitespace-nowrap">
                       Rec: ${formatNumber(totalRecovery)}
                     </td>
                   </tr>

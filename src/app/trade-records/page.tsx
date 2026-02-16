@@ -80,14 +80,39 @@ export default function TradeRecordsPage() {
       const result = await res.json();
       // Auto-generate commission lines from lease schedule if not already present
       const d = result.data;
-      if (trType === "lease" && d.leaseSchedule && !d.commissionLines) {
+      const hasCommLines = d.commissionLines && Array.isArray(d.commissionLines) && d.commissionLines.length > 0;
+      if (trType === "lease" && d.leaseSchedule && Array.isArray(d.leaseSchedule) && d.leaseSchedule.length > 0 && !hasCommLines) {
         const rentPeriods = d.leaseSchedule.filter((s: { rentPSF: number }) => s.rentPSF > 0);
         d.commissionLines = rentPeriods.map((s: { startDate: string; endDate: string; rentPSF: number }, i: number) => {
           const start = new Date(s.startDate);
           const end = new Date(s.endDate);
-          const years = Math.max(1, Math.round((end.getTime() - start.getTime()) / (365.25 * 24 * 3600 * 1000)));
-          return { ratePSF: s.rentPSF, termYears: years, commissionRate: i === 0 ? 0.05 : 0.02 };
+          const diffMs = end.getTime() - start.getTime();
+          const years = isNaN(diffMs) || diffMs <= 0 ? 1 : Math.max(1, Math.round(diffMs / (365.25 * 24 * 3600 * 1000)));
+          return { ratePSF: s.rentPSF, termYears: years, commissionRate: i === 0 ? 5 : 2 };
         });
+      }
+      // Fallback: if still no commission lines but we have basic rent info, create a single line
+      if (trType === "lease" && (!d.commissionLines || d.commissionLines.length === 0)) {
+        const sf = d.totalSF || 0;
+        const rentPSF = d.baseAnnualRentPSF || 0;
+        if (sf > 0 && rentPSF > 0) {
+          // Estimate term from termStart/termEnd
+          let termYears = 5;
+          if (d.termStart && d.termEnd) {
+            const s = new Date(`${d.termStart.year}-${d.termStart.month}-${d.termStart.day}`);
+            const e = new Date(`${d.termEnd.year}-${d.termEnd.month}-${d.termEnd.day}`);
+            const diff = e.getTime() - s.getTime();
+            if (!isNaN(diff) && diff > 0) termYears = Math.max(1, Math.round(diff / (365.25 * 24 * 3600 * 1000)));
+          }
+          d.commissionLines = [{ ratePSF: rentPSF, termYears, commissionRate: 5 }];
+        }
+      }
+      // Convert AI-returned decimal commission percentages to whole numbers for display
+      if (d.commissionPercentage && d.commissionPercentage < 1) {
+        d.commissionPercentage = d.commissionPercentage * 100;
+      }
+      if (d.commissionRate && d.commissionRate < 1) {
+        d.commissionRate = d.commissionRate * 100;
       }
       setExtractedData(d);
       setStage("review");
@@ -109,10 +134,21 @@ export default function TradeRecordsPage() {
           ...offices.map(o => ({ ...o, share: o.share / 100, people: o.people?.map(p => ({ ...p, pct: p.pct / 100 })) })),
         ],
       };
+      // Convert commission rates from whole numbers (e.g. 5) to decimals (0.05) for backend
+      const dataForBackend = JSON.parse(JSON.stringify(extractedData));
+      if (dataForBackend.commissionLines) {
+        dataForBackend.commissionLines = dataForBackend.commissionLines.map((l: { ratePSF: number; termYears: number; commissionRate: number }) => ({
+          ...l,
+          commissionRate: (l.commissionRate || 0) / 100,
+        }));
+      }
+      if (dataForBackend.commissionPercentage) {
+        dataForBackend.commissionPercentage = dataForBackend.commissionPercentage / 100;
+      }
       const res = await fetch("/api/trade-records/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: extractedData, type: trType, commission: commissionConfig }),
+        body: JSON.stringify({ data: dataForBackend, type: trType, commission: commissionConfig }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Generation failed"); }
       const result = await res.json();
@@ -560,17 +596,29 @@ function LeaseReviewForm({ data, updateField }: { data: any; updateField: (path:
               <tbody>
                 {(data.commissionLines || []).map((line: { ratePSF: number; termYears: number; commissionRate: number }, idx: number) => (
                   <tr key={idx} className="border-t border-card-border">
-                    <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.ratePSF ?? ""} onChange={e => {
+                    <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" inputMode="decimal" value={line.ratePSF ?? ""} onChange={e => {
+                      const lines = [...(data.commissionLines || [])];
+                      lines[idx] = { ...lines[idx], ratePSF: e.target.value as unknown as number };
+                      updateField("commissionLines", lines);
+                    }} onBlur={e => {
                       const lines = [...(data.commissionLines || [])];
                       lines[idx] = { ...lines[idx], ratePSF: Number(e.target.value) || 0 };
                       updateField("commissionLines", lines);
                     }} /></td>
-                    <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.termYears ?? ""} onChange={e => {
+                    <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" inputMode="decimal" value={line.termYears ?? ""} onChange={e => {
+                      const lines = [...(data.commissionLines || [])];
+                      lines[idx] = { ...lines[idx], termYears: e.target.value as unknown as number };
+                      updateField("commissionLines", lines);
+                    }} onBlur={e => {
                       const lines = [...(data.commissionLines || [])];
                       lines[idx] = { ...lines[idx], termYears: Number(e.target.value) || 0 };
                       updateField("commissionLines", lines);
                     }} /></td>
-                    <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.commissionRate ?? ""} onChange={e => {
+                    <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" inputMode="decimal" value={line.commissionRate ?? ""} onChange={e => {
+                      const lines = [...(data.commissionLines || [])];
+                      lines[idx] = { ...lines[idx], commissionRate: e.target.value as unknown as number };
+                      updateField("commissionLines", lines);
+                    }} onBlur={e => {
                       const lines = [...(data.commissionLines || [])];
                       lines[idx] = { ...lines[idx], commissionRate: Number(e.target.value) || 0 };
                       updateField("commissionLines", lines);
@@ -586,7 +634,7 @@ function LeaseReviewForm({ data, updateField }: { data: any; updateField: (path:
             </table>
             <button className="mt-1 text-xs text-blue-400 hover:text-blue-300" onClick={() => {
               const lines = [...(data.commissionLines || [])];
-              lines.push({ ratePSF: data.baseAnnualRentPSF || 0, termYears: 5, commissionRate: lines.length === 0 ? 0.05 : 0.02 });
+              lines.push({ ratePSF: data.baseAnnualRentPSF || 0, termYears: 5, commissionRate: lines.length === 0 ? 5 : 2 });
               updateField("commissionLines", lines);
             }}>+ Add Commission Line</button>
           </>)}
@@ -607,12 +655,20 @@ function LeaseReviewForm({ data, updateField }: { data: any; updateField: (path:
                 <tbody>
                   {(data.dollarPSFLines || [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }]).map((line: { ratePSF: number; termYears: number }, idx: number) => (
                     <tr key={idx}>
-                      <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.01" value={line.ratePSF ?? ""} onChange={e => {
+                      <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" inputMode="decimal" value={line.ratePSF ?? ""} onChange={e => {
+                        const lines = [...(data.dollarPSFLines || [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }])];
+                        lines[idx] = { ...lines[idx], ratePSF: e.target.value as unknown as number };
+                        updateField("dollarPSFLines", lines);
+                      }} onBlur={e => {
                         const lines = [...(data.dollarPSFLines || [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }])];
                         lines[idx] = { ...lines[idx], ratePSF: Number(e.target.value) || 0 };
                         updateField("dollarPSFLines", lines);
                       }} /></td>
-                      <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" type="number" step="0.1" value={line.termYears ?? ""} onChange={e => {
+                      <td className="px-1 py-1"><input className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-sm" inputMode="decimal" value={line.termYears ?? ""} onChange={e => {
+                        const lines = [...(data.dollarPSFLines || [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }])];
+                        lines[idx] = { ...lines[idx], termYears: e.target.value as unknown as number };
+                        updateField("dollarPSFLines", lines);
+                      }} onBlur={e => {
                         const lines = [...(data.dollarPSFLines || [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }])];
                         lines[idx] = { ...lines[idx], termYears: Number(e.target.value) || 0 };
                         updateField("dollarPSFLines", lines);
@@ -768,14 +824,14 @@ function SaleReviewForm({ data, updateField }: { data: any; updateField: (path: 
           <Field label="Purchase Price ($)" value={data.purchasePrice} onChange={v => updateField("purchasePrice", safeNum(v))} numeric />
           <SelectField label="Commission Type" value={data.commissionType || "percentage"} options={["percentage", "setFee"]} onChange={v => updateField("commissionType", v)} />
           {(data.commissionType || "percentage") === "percentage" ? (
-            <Field label="Commission % (decimal, e.g. 0.05)" value={data.commissionPercentage} onChange={v => updateField("commissionPercentage", safeNum(v))} numeric />
+            <Field label="Commission % (e.g. 5 for 5%)" value={data.commissionPercentage} onChange={v => updateField("commissionPercentage", safeNum(v))} numeric />
           ) : (
             <Field label="Set Fee Amount ($)" value={data.commissionSetFee} onChange={v => updateField("commissionSetFee", safeNum(v))} numeric />
           )}
           <div className="flex items-end pb-1">
             <span className="text-xs text-muted">
               {data.purchasePrice && data.commissionPercentage && (data.commissionType || "percentage") === "percentage"
-                ? `= $${((data.purchasePrice || 0) * (data.commissionPercentage || 0)).toLocaleString()}`
+                ? `= $${((data.purchasePrice || 0) * (data.commissionPercentage || 0) / 100).toLocaleString()}`
                 : data.commissionSetFee && data.commissionType === "setFee"
                 ? `= $${Number(data.commissionSetFee).toLocaleString()}`
                 : ""}

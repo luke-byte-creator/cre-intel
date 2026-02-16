@@ -30,9 +30,10 @@ async function generateLeaseFromTemplate(data: any, commission: any): Promise<Bu
     if (!isNaN(d.getTime())) ws.getCell(cell).value = d;
   };
 
-  // Helper for formula cells
-  const setFormula = (cell: string, formula: string) => {
-    ws.getCell(cell).value = { formula } as ExcelJS.CellFormulaValue;
+  // Helper for formula cells — strip leading = (ExcelJS doesn't want it)
+  const setFormula = (cell: string, formula: string, result?: number) => {
+    const f = formula.startsWith("=") ? formula.slice(1) : formula;
+    ws.getCell(cell).value = { formula: f, result: result ?? 0 } as ExcelJS.CellFormulaValue;
   };
 
   // Row 1: Title — already set in template
@@ -168,46 +169,117 @@ async function generateLeaseFromTemplate(data: any, commission: any): Promise<Bu
   set("I38", data.previousProperty || "");
 
   // === COMMISSION CALCULATION (rows 42-47) ===
-  // Template: A=SF (=$I$23), C=@, D=Rate PSF, F=@, G=Term (years), H=Total, I=Commission %, J=Commission amount
-  // Row 48: J48 = SUM(J42:K47) total billing, F51 = J48/2 branch total
+  // Template: A=Total SF, C=@, D=Rate PSF, F=@, G=Term (years), H=Total (A*D*G), I=Commission %, J=Commission (H*I)
+  // Row 48: J48 = SUM(J42:K47) total billing
   
   const leaseCommType = data.leaseCommissionType || "percentage";
   const schedule = data.leaseSchedule || [];
+  const totalSF = data.totalSF || 0;
+
+  // === COMMISSION CALCULATION (rows 42-47) ===
+  // Template has formulas in most rows but some cells are null (e.g. H44, J44).
+  // Strategy: set INPUT cells (D=rate, G=term, I=commission%), and ensure every row
+  // has A (SF ref), H (=A*D*G), and J (=H*I) formulas. Write formulas only for rows
+  // that need them; existing shared formulas will work on their own.
+
+  // First, ensure every row 42-47 has the A, H, J formulas (fill gaps in template)
+  for (let r = 42; r <= 47; r++) {
+    const aCell = ws.getCell(`A${r}`);
+    const hCell = ws.getCell(`H${r}`);
+    const jCell = ws.getCell(`J${r}`);
+    // A column: SF reference — if not a formula, set it
+    if (!aCell.value || (typeof aCell.value === 'object' && !('formula' in aCell.value) && !('sharedFormula' in aCell.value))) {
+      aCell.value = { formula: '$I$23' } as ExcelJS.CellFormulaValue;
+    }
+    // H column: Total = SF × Rate × Term
+    if (!hCell.value || (typeof hCell.value === 'object' && !('formula' in hCell.value) && !('sharedFormula' in hCell.value))) {
+      hCell.value = { formula: `A${r}*D${r}*G${r}` } as ExcelJS.CellFormulaValue;
+    }
+    // J column: Commission = Total × Rate
+    if (!jCell.value || (typeof jCell.value === 'object' && !('formula' in jCell.value) && !('sharedFormula' in jCell.value))) {
+      jCell.value = { formula: `H${r}*I${r}` } as ExcelJS.CellFormulaValue;
+    }
+  }
 
   if (leaseCommType === "setFee") {
-    // Set fee: put total directly in J42, clear rest
-    const fee = data.leaseCommissionSetFee || 0;
-    set("A42", ""); set("D42", ""); set("G42", ""); set("H42", "");
-    set("I42", "Set Fee");
-    set("J42", fee);
-    for (let i = 1; i < 6; i++) {
+    // Set fee: populate deal value columns (SF, Rent PSF, Term) from lease schedule
+    // but leave I (commission rate) blank — commission is just the flat fee in J
+    const setFeeSchedule = (data.leaseSchedule || []).filter((s: { rentPSF: number }) => s.rentPSF > 0);
+    const setFeeFallbackRent = data.baseAnnualRentPSF || 0;
+    for (let i = 0; i < 6; i++) {
       const row = 42 + i;
-      set(`A${row}`, ""); set(`D${row}`, ""); set(`G${row}`, ""); set(`H${row}`, ""); set(`I${row}`, ""); set(`J${row}`, "");
+      if (i < setFeeSchedule.length) {
+        const s = setFeeSchedule[i];
+        // D = rent PSF from lease schedule
+        set(`D${row}`, s.rentPSF || setFeeFallbackRent);
+        // G = term years for this period
+        const start = new Date(s.startDate);
+        const end = new Date(s.endDate);
+        const diffMs = end.getTime() - start.getTime();
+        const years = isNaN(diffMs) || diffMs <= 0 ? 1 : Math.max(1, Math.round(diffMs / (365.25 * 24 * 3600 * 1000)));
+        set(`G${row}`, years);
+      } else if (i === 0 && setFeeSchedule.length === 0 && setFeeFallbackRent > 0) {
+        // No schedule but have base rent — show single row
+        set(`D${row}`, setFeeFallbackRent);
+        // Estimate term from termStart/termEnd
+        let termYears = 0;
+        if (data.termStart && data.termEnd) {
+          const s = new Date(`${data.termStart.year}-${data.termStart.month}-${data.termStart.day}`);
+          const e = new Date(`${data.termEnd.year}-${data.termEnd.month}-${data.termEnd.day}`);
+          const diff = e.getTime() - s.getTime();
+          if (!isNaN(diff) && diff > 0) termYears = Math.max(1, Math.round(diff / (365.25 * 24 * 3600 * 1000)));
+        }
+        set(`G${row}`, termYears);
+      } else {
+        set(`D${row}`, 0);
+        set(`G${row}`, 0);
+      }
+      // I = no commission rate for set fee — leave blank
+      set(`I${row}`, "");
+    }
+    // Total commission = the set fee, placed in J42
+    // Clear J formula so it doesn't try to calculate, just show the flat fee
+    ws.getCell("J42").value = data.leaseCommissionSetFee || 0;
+    for (let i = 1; i < 6; i++) {
+      ws.getCell(`J${42 + i}`).value = null;
     }
   } else if (leaseCommType === "dollarPSF") {
-    // $/SF/Year: SF × $/SF × Term years — supports multiple rows
-    const sf = data.totalSF || 0;
+    // $/SF/Year mode:
+    //   D = tenant rent PSF (for reference/display)
+    //   G = term years
+    //   H = A*D*G (deal value = SF × rent × term) — template formula, untouched
+    //   I = commission rate in $/SF/Year (e.g. $1.50)
+    //   J = SF × commission $/SF × term = A*I*G (override template formula)
     const lines = data.dollarPSFLines && data.dollarPSFLines.length > 0
       ? data.dollarPSFLines
       : [{ ratePSF: data.commissionDollarPSF || 0, termYears: data.commissionDollarPSFTerm || 0 }];
+    // Get rent PSF from lease schedule for display in D column
+    const leaseRents = (data.leaseSchedule || []).map((s: { rentPSF: number }) => s.rentPSF || 0);
+    const fallbackRent = data.baseAnnualRentPSF || 0;
     for (let i = 0; i < 6; i++) {
       const row = 42 + i;
       if (i < lines.length) {
-        const line = lines[i];
-        set(`A${row}`, sf);
-        set(`C${row}`, "@");
-        set(`D${row}`, line.ratePSF || 0);
-        set(`F${row}`, "@");
-        set(`G${row}`, line.termYears || 0);
-        setFormula(`H${row}`, `=A${row}*D${row}*G${row}`);
-        set(`I${row}`, "$/SF/Yr");
-        setFormula(`J${row}`, `=H${row}`);
+        // D = tenant net rent PSF (from lease schedule, or base rent — never the commission rate)
+        set(`D${row}`, leaseRents[i] || fallbackRent);
+        set(`G${row}`, lines[i].termYears || 0);
+        // I = commission $/SF/Year rate — override cell format from % to currency
+        const iCell = ws.getCell(`I${row}`);
+        iCell.value = lines[i].ratePSF || 0;
+        iCell.numFmt = '$#,##0.00';
+        // J = SF × $/SF commission × term (override template's H*I formula)
+        setFormula(`J${row}`, `A${row}*I${row}*G${row}`);
       } else {
-        set(`A${row}`, ""); set(`D${row}`, ""); set(`G${row}`, ""); set(`H${row}`, ""); set(`I${row}`, ""); set(`J${row}`, "");
+        set(`D${row}`, 0);
+        set(`G${row}`, 0);
+        const iCellEmpty = ws.getCell(`I${row}`);
+        iCellEmpty.value = 0;
+        iCellEmpty.numFmt = '$#,##0.00';
+        setFormula(`J${row}`, `A${row}*I${row}*G${row}`);
       }
     }
   } else {
     // Percentage: SF × Rate PSF × Term × Commission %
+    // Template formulas handle everything — just fill D (rate), G (term), I (comm %)
     const commissionLines = data.commissionLines || [];
     
     const lines = commissionLines.length > 0 ? commissionLines : schedule
@@ -226,30 +298,21 @@ async function generateLeaseFromTemplate(data: any, commission: any): Promise<Bu
     for (let i = 0; i < 6; i++) {
       const row = 42 + i;
       if (i < lines.length) {
-        const line = lines[i];
-        setFormula(`A${row}`, "=$I$23");
-        set(`D${row}`, line.ratePSF);
-        set(`G${row}`, line.termYears);
-        setFormula(`H${row}`, `=A${row}*D${row}*G${row}`);
-        set(`I${row}`, line.commissionRate);
-        setFormula(`J${row}`, `=H${row}*I${row}`);
+        set(`D${row}`, lines[i].ratePSF || 0);
+        set(`G${row}`, lines[i].termYears || 0);
+        set(`I${row}`, lines[i].commissionRate || 0);
       } else {
-        set(`A${row}`, ""); set(`D${row}`, ""); set(`G${row}`, "");
-        set(`H${row}`, ""); set(`I${row}`, ""); set(`J${row}`, "");
+        set(`D${row}`, 0);
+        set(`G${row}`, 0);
+        set(`I${row}`, 0);
       }
-      set(`C${row}`, "@");
-      set(`F${row}`, "@");
     }
   }
 
-  // Row 48: Totals — ensure the SUM formula is intact
-  // J48 = SUM(J42:K47) is already in template, but set it explicitly to be safe
-  setFormula("J48", "=SUM(J42:K47)");
-
-  // Row 48: Total deal value
-  setFormula("E48", "=SUM(H42:H47)");
+  // Row 48: Template already has J48=SUM(J42:K47) and F48=SUM(H42:H48) — don't touch
 
   // === COMMISSION DISTRIBUTION (rows 51-69) ===
+  // Template: F51=(J48/2), F52=$F$51*0.385, etc., F70=SUM(F51:F69)
   const splits = commission?.splits || [
     { name: "Michael Bratvold", pct: 0.385 },
     { name: "Ben Kelley", pct: 0.265 },
@@ -258,8 +321,12 @@ async function generateLeaseFromTemplate(data: any, commission: any): Promise<Bu
     { name: "Luke Jansen", pct: 0.07 },
   ];
 
-  // Row 51: Branch total (already has formula =(J48/2))
-  // Rows 52-56: Individual agents
+  // Branch share — override F51 formula with user's configured share
+  const branchSharePct = commission?.offices?.[0]?.share || 0.5;
+  const branchCalc = (data.totalSF || 0); // for result estimation
+  setFormula("F51", `=J48*${branchSharePct}`);
+
+  // Individual splits — write name + formula referencing F51
   for (let i = 0; i < splits.length && i < 18; i++) {
     const row = 52 + i;
     set(`A${row}`, "CBRE Saskatchewan");
@@ -335,8 +402,9 @@ async function generateSaleFromTemplate(data: any, commission: any): Promise<Buf
     const d = typeof value === "string" ? new Date(value) : value;
     if (!isNaN(d.getTime())) ws.getCell(cell).value = d;
   };
-  const setFormula = (cell: string, formula: string) => {
-    ws.getCell(cell).value = { formula } as ExcelJS.CellFormulaValue;
+  const setFormula = (cell: string, formula: string, result?: number) => {
+    const f = formula.startsWith("=") ? formula.slice(1) : formula;
+    ws.getCell(cell).value = { formula: f, result: result ?? 0 } as ExcelJS.CellFormulaValue;
   };
 
   // Row 2: FINTRAC
@@ -455,7 +523,14 @@ async function generateSaleFromTemplate(data: any, commission: any): Promise<Buf
   set("F42", data.outsideBrokerContact || "");
   set("J48", data.outsideBrokerCommission ?? 0);
 
-  // Row 53: Commission calculation
+  // === SALE COMMISSION ===
+  // Template structure:
+  //   A53=Price, E53=Commission % (or "Set Fee"), H53=Total Commission
+  //   H54=A54*E54 (2nd commission line, usually empty)
+  //   H55=H53+H54 (Total of all commission lines) — LEAVE THIS FORMULA
+  //   I59=(H55*branchShare)/2 — branch total (÷2 is CBRE corporate split)
+  //   I60+=$I$59*pct — individual splits
+
   const price = data.purchasePrice ?? 0;
   set("A53", price);
   if (data.commissionType === "setFee" && data.commissionSetFee) {
@@ -464,8 +539,10 @@ async function generateSaleFromTemplate(data: any, commission: any): Promise<Buf
   } else {
     const commPct = data.commissionPercentage || 0;
     set("E53", commPct);
-    setFormula("H53", `=A53*E53`);
+    setFormula("H53", "=A53*E53");
   }
+
+  // H55 template formula =H53+H54 is already there — don't touch it
 
   // Commission distribution
   const splits = commission?.splits || [
@@ -477,15 +554,14 @@ async function generateSaleFromTemplate(data: any, commission: any): Promise<Buf
   ];
 
   const offices = commission?.offices || [];
-  // Main branch share — first office is always the main branch (Saskatoon)
   const mainBranchShare = offices.length > 0 ? offices[0].share : 0.5;
 
-  // Row 59: Main branch total = (Total Commission × branch share) / 2
+  // I59: Branch total = (Total Commission × Branch Share) / 2 (CBRE corporate split)
   set("A59", offices[0]?.branchNum || "100101");
   set("B59", offices[0]?.name || "Saskatoon");
   setFormula("I59", `=(H55*${mainBranchShare})/2`);
 
-  // Rows 60+: Individual splits within main branch
+  // Individual splits — formula referencing I59
   for (let i = 0; i < splits.length && i < 10; i++) {
     const row = 60 + i;
     set(`B${row}`, offices[0]?.name || "Saskatoon");
@@ -493,7 +569,16 @@ async function generateSaleFromTemplate(data: any, commission: any): Promise<Buf
     setFormula(`I${row}`, `=$I$59*${splits[i].pct}`);
   }
 
-  // Additional offices (starting after main branch splits + 1 gap row)
+  // Clear any leftover rows from template (e.g. Calgary office example data)
+  const firstClearRow = 60 + splits.length;
+  for (let row = firstClearRow; row <= 68; row++) {
+    ws.getCell(`A${row}`).value = null;
+    ws.getCell(`B${row}`).value = null;
+    ws.getCell(`E${row}`).value = null;
+    ws.getCell(`I${row}`).value = null;
+  }
+
+  // Additional offices — only if user explicitly added them
   if (offices.length > 1) {
     let row = 60 + splits.length + 1;
     for (let oi = 1; oi < offices.length; oi++) {
