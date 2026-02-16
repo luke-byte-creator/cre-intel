@@ -602,7 +602,7 @@ function ExpandedDetail({ r, onEdit, onRefresh }: { r: Comp; onEdit: () => void;
       <div className="flex justify-end gap-2">
         <button onClick={toggleResearched}
           className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
-          {r.researchedUnavailable === 1 ? "Unflag Researched" : "Mark Unavailable"}
+          {r.researchedUnavailable === 1 ? "Mark Unresearched" : "Mark Researched"}
         </button>
         <button onClick={(e) => { e.stopPropagation(); onEdit(); }}
           className="px-3 py-1.5 text-sm bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded-lg transition-colors flex items-center gap-1.5">
