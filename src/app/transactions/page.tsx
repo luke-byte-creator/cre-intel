@@ -87,7 +87,7 @@ export default function TransactionsPage() {
   const [sizeTolerance, setSizeTolerance] = useState("50");
   const [dateRange, setDateRange] = useState("3");
   const [fcSearch, setFcSearch] = useState("");
-  const [researchFilter, setResearchFilter] = useState<"all" | "researched" | "unresearched">("all");
+  const [researchFilter, setResearchFilter] = useState<"all" | "researched" | "unresearched" | "transfer">("all");
   const [fcResults, setFcResults] = useState<FindComp[]>([]);
   const [fcTotal, setFcTotal] = useState(0);
   const [fcLoading, setFcLoading] = useState(false);
@@ -233,10 +233,11 @@ export default function TransactionsPage() {
               </div>
               <div>
                 <label className="block text-xs text-muted mb-1.5 font-medium">Research Status</label>
-                <select value={researchFilter} onChange={e => setResearchFilter(e.target.value as "all" | "researched" | "unresearched")} className={selectCls + " w-full"}>
+                <select value={researchFilter} onChange={e => setResearchFilter(e.target.value as "all" | "researched" | "unresearched" | "transfer")} className={selectCls + " w-full"}>
                   <option value="all">All</option>
                   <option value="researched">Researched Only</option>
                   <option value="unresearched">Unresearched Only</option>
+                  <option value="transfer">Transfer List Only</option>
                 </select>
               </div>
             </div>
@@ -417,7 +418,8 @@ export default function TransactionsPage() {
             embeddedSizeMin={targetSF && sizeTolerance !== "any" ? String(Math.round(Number(targetSF) * (1 - Number(sizeTolerance) / 100))) : ""}
             embeddedSizeMax={targetSF && sizeTolerance !== "any" ? String(Math.round(Number(targetSF) * (1 + Number(sizeTolerance) / 100))) : ""}
             embeddedDateFrom={dateRange !== "all" ? new Date(new Date().setFullYear(new Date().getFullYear() - Number(dateRange))).toISOString().split("T")[0] : ""}
-            embeddedResearchFilter={researchFilter}
+            embeddedResearchFilter={researchFilter === "transfer" ? "all" : researchFilter}
+            embeddedSource={researchFilter === "transfer" ? "transfer" : "All"}
           />
         ) : (
           <LeasesPage
@@ -428,7 +430,8 @@ export default function TransactionsPage() {
             embeddedSizeMin={targetSF && sizeTolerance !== "any" ? String(Math.round(Number(targetSF) * (1 - Number(sizeTolerance) / 100))) : ""}
             embeddedSizeMax={targetSF && sizeTolerance !== "any" ? String(Math.round(Number(targetSF) * (1 + Number(sizeTolerance) / 100))) : ""}
             embeddedDateFrom={dateRange !== "all" ? new Date(new Date().setFullYear(new Date().getFullYear() - Number(dateRange))).toISOString().split("T")[0] : ""}
-            embeddedResearchFilter={researchFilter}
+            embeddedResearchFilter={researchFilter === "transfer" ? "all" : researchFilter}
+            embeddedSource={researchFilter === "transfer" ? "transfer" : "All"}
           />
         )}
       </div>
