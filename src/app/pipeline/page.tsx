@@ -280,9 +280,7 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
       const sepMatch = raw.match(/^([^,\-]+)[,\-]\s*(.+)$/);
       const dealName = sepMatch ? sepMatch[1].trim() : raw;
       const details = sepMatch ? sepMatch[2].trim() : "";
-      const notes = details
-        ? JSON.stringify([{ text: details, date: new Date().toISOString() }])
-        : null;
+      const notes = details || null;
       await fetch("/api/deals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
