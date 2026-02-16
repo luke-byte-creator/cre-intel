@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const [item] = db
     .select()
     .from(schema.watchlist)
-    .where(sql`entity_type = ${entityType} AND entity_id = ${parseInt(entityId, 10)}`)
+    .where(sql`entity_type = ${entityType} AND entity_id = ${parseInt(entityId, 10)} AND user_id = ${auth.user.id}`)
     .all();
 
   return NextResponse.json({ watched: !!item, watchId: item?.id ?? null });

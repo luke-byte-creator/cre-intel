@@ -320,6 +320,7 @@ export const alertsLog = sqliteTable("alerts_log", {
 // Watchlist
 export const watchlist = sqliteTable("watchlist", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").references(() => users.id),
   entityType: text("entity_type").notNull(), // "company", "person", "property"
   entityId: integer("entity_id").notNull(),
   label: text("label"), // user-friendly label

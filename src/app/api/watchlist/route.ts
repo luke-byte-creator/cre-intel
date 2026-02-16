@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
-import { sql, inArray } from "drizzle-orm";
+import { sql, inArray, eq } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
   const items = db
     .select()
     .from(schema.watchlist)
+    .where(eq(schema.watchlist.userId, auth.user.id))
     .orderBy(sql`created_at DESC`)
     .all();
 
@@ -76,6 +77,7 @@ export async function POST(req: NextRequest) {
   }
 
   const result = db.insert(schema.watchlist).values({
+    userId: auth.user.id,
     entityType: entityType as string,
     entityId: numEntityId,
     label: typeof label === "string" ? label.trim().slice(0, 200) || null : null,
