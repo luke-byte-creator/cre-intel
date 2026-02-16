@@ -9,11 +9,78 @@ interface Todo {
   text: string;
   completed: number;
   sortOrder: number;
+  dueDate: string | null;
   completedAt: string | null;
   createdAt: string;
   dealName: string | null;
   dealProperty: string | null;
   dealStage: string | null;
+}
+
+// Smart date detection from natural language
+function detectDate(text: string): { date: string | null; cleanText: string } {
+  const now = new Date();
+  const lower = text.toLowerCase();
+  
+  const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const shortDays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+  
+  // "on Monday", "on Tuesday", etc.
+  for (let i = 0; i < dayNames.length; i++) {
+    const patterns = [
+      new RegExp(`\\b(on\\s+)?${dayNames[i]}\\b`, "i"),
+      new RegExp(`\\b(on\\s+)?${shortDays[i]}\\b`, "i"),
+    ];
+    for (const pat of patterns) {
+      const match = lower.match(pat);
+      if (match) {
+        const target = new Date(now);
+        const diff = (i - now.getDay() + 7) % 7 || 7; // next occurrence
+        target.setDate(now.getDate() + diff);
+        const clean = text.replace(pat, "").replace(/\s+/g, " ").trim();
+        return { date: target.toISOString().slice(0, 10), cleanText: clean };
+      }
+    }
+  }
+  
+  // "tomorrow"
+  if (/\btomorrow\b/i.test(lower)) {
+    const d = new Date(now); d.setDate(d.getDate() + 1);
+    return { date: d.toISOString().slice(0, 10), cleanText: text.replace(/\btomorrow\b/i, "").replace(/\s+/g, " ").trim() };
+  }
+  
+  // "next week"
+  if (/\bnext week\b/i.test(lower)) {
+    const d = new Date(now); d.setDate(d.getDate() + ((1 - d.getDay() + 7) % 7 || 7));
+    return { date: d.toISOString().slice(0, 10), cleanText: text.replace(/\bnext week\b/i, "").replace(/\s+/g, " ").trim() };
+  }
+  
+  // "in X days/weeks/months"
+  const inMatch = lower.match(/\bin\s+(\d+)\s+(day|week|month|year)s?\b/i);
+  if (inMatch) {
+    const n = parseInt(inMatch[1]);
+    const unit = inMatch[2].toLowerCase();
+    const d = new Date(now);
+    if (unit === "day") d.setDate(d.getDate() + n);
+    else if (unit === "week") d.setDate(d.getDate() + n * 7);
+    else if (unit === "month") d.setMonth(d.getMonth() + n);
+    else if (unit === "year") d.setFullYear(d.getFullYear() + n);
+    return { date: d.toISOString().slice(0, 10), cleanText: text.replace(/\bin\s+\d+\s+(day|week|month|year)s?\b/i, "").replace(/\s+/g, " ").trim() };
+  }
+
+  // "by March 1" / "by Mar 1" / "by 03/01"
+  const months = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+  const byMatch = lower.match(/\b(?:by|on|before)\s+([a-z]+)\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?\b/i);
+  if (byMatch) {
+    const mIdx = months.findIndex(m => byMatch[1].toLowerCase().startsWith(m));
+    if (mIdx >= 0) {
+      const year = byMatch[3] ? parseInt(byMatch[3]) : (mIdx >= now.getMonth() ? now.getFullYear() : now.getFullYear() + 1);
+      const d = new Date(year, mIdx, parseInt(byMatch[2]));
+      return { date: d.toISOString().slice(0, 10), cleanText: text.replace(/\b(?:by|on|before)\s+[a-z]+\s+\d{1,2}(?:\s*,?\s*\d{4})?\b/i, "").replace(/\s+/g, " ").trim() };
+    }
+  }
+
+  return { date: null, cleanText: text };
 }
 
 interface Comment {
@@ -219,6 +286,8 @@ function DealTodos({ dealId, todos, onToggle }: { dealId: number; todos: Todo[];
 /* Todo List Section */
 function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; todos: Todo[]; fetchTodos: () => void; fetchDeals: () => void }) {
   const [newText, setNewText] = useState("");
+  const [detectedDate, setDetectedDate] = useState<string | null>(null);
+  const [manualDate, setManualDate] = useState("");
   const [hideCompleted, setHideCompleted] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestionFilter, setSuggestionFilter] = useState("");
@@ -242,6 +311,10 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
     const val = e.target.value;
     setNewText(val);
     setCursorPos(e.target.selectionStart || 0);
+
+    // Smart date detection
+    const { date } = detectDate(val);
+    setDetectedDate(date);
 
     // Check if user just typed @ 
     const beforeCursor = val.slice(0, e.target.selectionStart || 0);
@@ -271,14 +344,18 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
 
   const handleAdd = async () => {
     if (!newText.trim()) return;
-    const { dealId, cleanText } = parseMention(newText);
-    if (!cleanText) return;
+    const { dealId, cleanText: mentionClean } = parseMention(newText);
+    const dueDate = manualDate || detectedDate || null;
+    const { cleanText: finalText } = dueDate && detectedDate ? detectDate(mentionClean) : { cleanText: mentionClean };
+    if (!finalText) return;
     await fetch("/api/pipeline/todos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dealId, text: cleanText }),
+      body: JSON.stringify({ dealId, text: finalText, dueDate }),
     });
     setNewText("");
+    setDetectedDate(null);
+    setManualDate("");
     fetchTodos();
     fetchDeals();
   };
@@ -318,14 +395,25 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
   };
 
   // Render text with @mention highlighted
-  const renderTodoText = (todo: Todo) => (
-    <span className="text-sm text-foreground flex-1">
-      {todo.text}
-      {todo.dealName && (
-        <span className="text-[10px] text-muted bg-zinc-700/60 rounded-full px-2 py-0.5 ml-2 flex-shrink-0">{todo.dealName}</span>
-      )}
-    </span>
-  );
+  const renderTodoText = (todo: Todo) => {
+    const isOverdue = todo.dueDate && !todo.completed && todo.dueDate < new Date().toISOString().slice(0, 10);
+    const isToday = todo.dueDate === new Date().toISOString().slice(0, 10);
+    return (
+      <span className="text-sm text-foreground flex-1 flex items-center gap-2 flex-wrap">
+        <span>{todo.text}</span>
+        {todo.dealName && (
+          <span className="text-[10px] text-muted bg-zinc-700/60 rounded-full px-2 py-0.5 flex-shrink-0">{todo.dealName}</span>
+        )}
+        {todo.dueDate && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
+            isOverdue ? "bg-red-500/15 text-red-400" : isToday ? "bg-accent/15 text-accent" : "bg-zinc-700/50 text-muted"
+          }`}>
+            📅 {new Date(todo.dueDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+          </span>
+        )}
+      </span>
+    );
+  };
 
   return (
     <div className="bg-card border border-card-border rounded-xl p-5">
@@ -370,10 +458,23 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
             </div>
           )}
         </div>
+        <input
+          type="date"
+          value={manualDate || detectedDate || ""}
+          onChange={e => { setManualDate(e.target.value); setDetectedDate(null); }}
+          className="w-32 bg-background border border-card-border rounded-lg px-2 py-2 text-xs text-foreground [color-scheme:dark] focus:outline-none focus:border-accent/50"
+          title="Due date (auto-detected or pick manually)"
+        />
         <button onClick={handleAdd} disabled={!newText.trim()} className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 disabled:opacity-40 transition">
           Add
         </button>
       </div>
+      {detectedDate && !manualDate && (
+        <div className="flex items-center gap-2 -mt-2 mb-3 ml-1">
+          <span className="text-[10px] text-accent">📅 Detected: {new Date(detectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
+          <button onClick={() => { setDetectedDate(null); }} className="text-[10px] text-muted hover:text-red-400">✕ clear</button>
+        </div>
+      )}
 
       {/* Incomplete todos */}
       <div className="space-y-1">
@@ -478,6 +579,73 @@ function EconomicsModal({ deal, onClose, onSaved }: { deal: Deal; onClose: () =>
         </div>
         <DealCalculator initialData={existing} onSave={handleSave} onRemove={handleRemove} compact />
       </div>
+    </div>
+  );
+}
+
+/* Schedule Follow-up from deal card */
+function ScheduleFollowup({ deal, onSaved }: { deal: Deal; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [dueDate, setDueDate] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const quickDates = [
+    { label: "Tomorrow", fn: () => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); } },
+    { label: "1 Week", fn: () => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); } },
+    { label: "2 Weeks", fn: () => { const d = new Date(); d.setDate(d.getDate() + 14); return d.toISOString().slice(0, 10); } },
+    { label: "1 Month", fn: () => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().slice(0, 10); } },
+    { label: "3 Months", fn: () => { const d = new Date(); d.setMonth(d.getMonth() + 3); return d.toISOString().slice(0, 10); } },
+  ];
+
+  const handleSave = async () => {
+    if (!dueDate) return;
+    setSaving(true);
+    await fetch("/api/followups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contactName: deal.tenantName,
+        dealId: deal.id,
+        dueDate,
+        note: note || null,
+      }),
+    });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => { setSaved(false); setOpen(false); setDueDate(""); setNote(""); }, 1500);
+    onSaved();
+  };
+
+  if (!open) {
+    return (
+      <div className="pt-1">
+        <button onClick={() => setOpen(true)} className="text-xs text-accent hover:text-accent/80">📅 Schedule Follow-up</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-2 space-y-2 border-t border-card-border/50">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">Schedule Follow-up</span>
+        <button onClick={() => setOpen(false)} className="text-[10px] text-muted hover:text-foreground">Close</button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {quickDates.map(q => (
+          <button key={q.label} onClick={() => setDueDate(q.fn())}
+            className={`px-2 py-1 text-[11px] rounded transition ${dueDate === q.fn() ? "bg-accent text-white" : "bg-zinc-700 text-muted hover:bg-zinc-600"}`}>{q.label}</button>
+        ))}
+      </div>
+      <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+        className="w-full bg-background border border-card-border rounded px-2 py-1.5 text-xs text-foreground" />
+      <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note (optional)"
+        className="w-full bg-background border border-card-border rounded px-2 py-1.5 text-xs text-foreground placeholder:text-muted" />
+      <button onClick={handleSave} disabled={!dueDate || saving}
+        className="px-3 py-1.5 bg-accent text-white rounded text-xs font-medium hover:bg-accent/80 disabled:opacity-40 transition">
+        {saved ? "✓ Scheduled" : saving ? "…" : "Schedule"}
+      </button>
     </div>
   );
 }
@@ -795,6 +963,17 @@ export default function PipelinePage() {
 
                           {/* Generate Email */}
                           <GenerateEmail deal={deal} onRefreshDeal={fetchDeals} />
+
+                          {/* Draft Document */}
+                          <div className="pt-1">
+                            <a href={`/drafts?dealId=${deal.id}&deal=${encodeURIComponent(deal.tenantName)}`}
+                              className="text-xs text-accent hover:text-accent/80">
+                              📄 Draft Document
+                            </a>
+                          </div>
+
+                          {/* Schedule Follow-up */}
+                          <ScheduleFollowup deal={deal} onSaved={fetchDeals} />
 
                           {/* Actions */}
                           <div className="flex gap-2 pt-1">

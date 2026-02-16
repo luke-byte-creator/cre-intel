@@ -18,6 +18,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const updates: Record<string, unknown> = {};
 
   if (body.text !== undefined) updates.text = body.text;
+  if (body.dueDate !== undefined) updates.dueDate = body.dueDate || null;
   if (body.completed !== undefined) {
     updates.completed = body.completed;
     if (body.completed) {

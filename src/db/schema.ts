@@ -482,11 +482,30 @@ export const pipelineTodos = sqliteTable("pipeline_todos", {
   text: text("text").notNull(),
   completed: integer("completed").default(0),
   sortOrder: integer("sort_order").notNull(),
+  dueDate: text("due_date"),
   completedAt: text("completed_at"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_pipeline_todos_deal_id").on(table.dealId),
   index("idx_pipeline_todos_sort_order").on(table.sortOrder),
+]);
+
+// Follow-ups
+export const followups = sqliteTable("followups", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  contactName: text("contact_name").notNull(),
+  contactPhone: text("contact_phone"),
+  contactEmail: text("contact_email"),
+  dealId: integer("deal_id").references(() => deals.id),
+  note: text("note"),
+  dueDate: text("due_date").notNull(),
+  status: text("status").notNull().default("pending"),
+  completedAt: text("completed_at"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_followups_due_date").on(table.dueDate),
+  index("idx_followups_status").on(table.status),
 ]);
 
 // Underwriting Analyses
@@ -503,6 +522,40 @@ export const underwritingAnalyses = sqliteTable("underwriting_analyses", {
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+// Document Drafts
+export const documentDrafts = sqliteTable("document_drafts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  documentType: text("document_type").notNull(),
+  title: text("title").notNull(),
+  referenceDocPath: text("reference_doc_path"),
+  extractedStructure: text("extracted_structure"),
+  generatedContent: text("generated_content"),
+  instructions: text("instructions"),
+  status: text("status").notNull().default("draft"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_document_drafts_user_id").on(table.userId),
+  index("idx_document_drafts_deal_id").on(table.dealId),
+]);
+
+// Document Presets
+export const documentPresets = sqliteTable("document_presets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  documentType: text("document_type").notNull(),
+  subType: text("sub_type"),
+  name: text("name").notNull(),
+  extractedStructure: text("extracted_structure").notNull(),
+  exampleCount: integer("example_count").notNull().default(0),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_document_presets_user_id").on(table.userId),
+]);
 
 // Retail Tenants
 export const retailTenants = sqliteTable("retail_tenants", {

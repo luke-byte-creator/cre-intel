@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
       text: schema.pipelineTodos.text,
       completed: schema.pipelineTodos.completed,
       sortOrder: schema.pipelineTodos.sortOrder,
+      dueDate: schema.pipelineTodos.dueDate,
       completedAt: schema.pipelineTodos.completedAt,
       createdAt: schema.pipelineTodos.createdAt,
       dealName: schema.deals.tenantName,
@@ -56,10 +57,13 @@ export async function POST(req: NextRequest) {
   const nextOrder = (maxResult[0]?.maxOrder ?? -1) + 1;
 
   const now = new Date().toISOString();
+  const dueDate = body.dueDate ? (body.dueDate as string) : null;
+
   const result = await db.insert(schema.pipelineTodos).values({
     dealId,
     text: body.text as string,
     sortOrder: nextOrder,
+    dueDate,
     createdAt: now,
   }).returning();
 
