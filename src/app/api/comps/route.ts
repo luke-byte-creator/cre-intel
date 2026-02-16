@@ -152,12 +152,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "address and type required" }, { status: 400 });
   }
 
-  const { normalizeAddress, normalizeCity } = await import("@/lib/address");
+  const { normalizeAddress, normalizeCity, displayAddress } = await import("@/lib/address");
+  const normAddr = normalizeAddress(body.address);
   const [comp] = db.insert(schema.comps).values({
     type: body.type,
-    address: body.address,
     ...body,
-    addressNormalized: normalizeAddress(body.address),
+    address: normAddr ? displayAddress(normAddr) || body.address : body.address,
+    addressNormalized: normAddr,
     cityNormalized: normalizeCity(body.city || 'Saskatoon'),
   }).returning().all();
 

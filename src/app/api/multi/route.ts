@@ -65,8 +65,13 @@ export async function POST(req: NextRequest) {
 
   if (!body.address) return NextResponse.json({ error: "address required" }, { status: 400 });
 
+  const { normalizeAddress, normalizeCity, displayAddress } = await import("@/lib/address");
+  const norm = normalizeAddress(body.address);
+  const display = norm ? displayAddress(norm) || body.address : body.address;
   const result = db.insert(schema.multiBuildings).values({
-    address: body.address,
+    address: display,
+    addressNormalized: norm,
+    cityNormalized: normalizeCity(body.city || 'Saskatoon'),
     buildingName: body.buildingName || null,
     units: body.units ? Number(body.units) : null,
     yearBuilt: body.yearBuilt ? Number(body.yearBuilt) : null,

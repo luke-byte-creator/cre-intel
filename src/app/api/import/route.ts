@@ -130,9 +130,12 @@ async function findOrCreateProperty(
     return matched[0].id;
   }
 
+  const { normalizeAddress, normalizeCity, displayAddress } = await import("@/lib/address");
+  const normAddr = normalizeAddress(address);
+  const cleanAddr = normAddr ? displayAddress(normAddr) || address : address;
   const result = db
     .insert(schema.properties)
-    .values({ address, city: "Saskatoon", province: "SK", ...extra })
+    .values({ address: cleanAddr, city: "Saskatoon", province: "SK", addressNormalized: normAddr, cityNormalized: normalizeCity("Saskatoon"), ...extra })
     .returning({ id: schema.properties.id })
     .get();
   stats.propertiesCreated++;
@@ -246,10 +249,14 @@ async function importBuildingPermits(buffer: Uint8Array, filename: string): Prom
       applicantCompanyId = await findOrCreateCompany(permit.owner, existingCompanies, stats, matchResults);
     }
 
+    const { normalizeAddress: normAddr2, displayAddress: dispAddr2 } = await import("@/lib/address");
+    const permitNorm = normAddr2(permit.address);
+    const permitDisplay = permitNorm ? dispAddr2(permitNorm) || permit.address : permit.address;
     db.insert(schema.permits).values({
       permitNumber: permit.permitNumber,
       propertyId,
-      address: permit.address,
+      address: permitDisplay,
+      addressNormalized: permitNorm,
       applicant: permit.owner,
       applicantCompanyId,
       description: permit.scope,

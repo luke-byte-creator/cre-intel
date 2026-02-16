@@ -14,8 +14,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (k in body) updates[k] = body[k] === "" ? null : body[k];
   }
   if (updates.address) {
-    const { normalizeAddress } = await import("@/lib/address");
-    updates.addressNormalized = normalizeAddress(updates.address as string);
+    const { normalizeAddress, displayAddress } = await import("@/lib/address");
+    const norm = normalizeAddress(updates.address as string);
+    updates.addressNormalized = norm;
+    updates.address = norm ? displayAddress(norm) || updates.address : updates.address;
   }
   await db.update(schema.retailDevelopments).set(updates).where(eq(schema.retailDevelopments.id, parseInt(id)));
   const devName = body.name || (await db.select({ name: schema.retailDevelopments.name }).from(schema.retailDevelopments).where(eq(schema.retailDevelopments.id, parseInt(id))).get())?.name || "development";

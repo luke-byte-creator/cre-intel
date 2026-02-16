@@ -65,8 +65,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   if (updates.address || updates.city) {
-    const { normalizeAddress, normalizeCity } = await import("@/lib/address");
-    if (updates.address) updates.addressNormalized = normalizeAddress(updates.address as string);
+    const { normalizeAddress, normalizeCity, displayAddress } = await import("@/lib/address");
+    if (updates.address) {
+      const norm = normalizeAddress(updates.address as string);
+      updates.addressNormalized = norm;
+      updates.address = norm ? displayAddress(norm) || updates.address : updates.address;
+    }
     if (updates.city) updates.cityNormalized = normalizeCity(updates.city as string);
   }
   await db.update(schema.multiBuildings).set(updates).where(eq(schema.multiBuildings.id, bid));

@@ -92,10 +92,31 @@ const CITY_ALIASES: Record<string, string> = {
  *   "Unit 5 - 123 Main Street" → "123 MAIN STREET UNIT 5"
  *   "#200 - 410 22nd St E" → "410 22ND STREET EAST UNIT 200"
  */
+/**
+ * Convert a normalized (uppercase) address to clean display format.
+ * "410 22ND STREET EAST" → "410 22nd Street East"
+ * "123 MAIN STREET UNIT 5" → "123 Main Street Unit 5"
+ */
+export function displayAddress(normalized: string | null | undefined): string | null {
+  if (!normalized) return null;
+  // Title case, but keep ordinals lowercase: 1ST → 1st, 22ND → 22nd
+  return normalized
+    .toLowerCase()
+    .replace(/\b\w/g, c => c.toUpperCase())
+    // Fix ordinals back to lowercase suffix: "22Nd" → "22nd", "1St" → "1st"
+    .replace(/(\d+)(St|Nd|Rd|Th)\b/g, (_, num, suffix) => `${num}${suffix.toLowerCase()}`);
+}
+
 export function normalizeAddress(address: string | null | undefined): string | null {
   if (!address || !address.trim()) return null;
 
   let addr = address.trim().toUpperCase();
+
+  // Detect legal land descriptions (e.g., "NE & SE 26-17-21-W2", "SW 14-36-5-W3")
+  // These should not be normalized — return as-is in uppercase
+  if (/^[NS][EW]?\s*[&\/]\s*[NS][EW]?\s+\d+/.test(addr) || /^[NS][EW]\s+\d+-\d+-\d+/.test(addr)) {
+    return addr;
+  }
 
   // Remove postal codes (Canadian format: A1A 1A1)
   addr = addr.replace(/\b[A-Z]\d[A-Z]\s*\d[A-Z]\d\b/g, '').trim();
@@ -135,14 +156,25 @@ export function normalizeAddress(address: string | null | undefined): string | n
   }
 
   // Pattern: "200-410 22nd St" (number-dash-number at start, first is unit)
+  // But NOT address ranges like "232-242 Pinehouse Dr" where both are civic numbers
   if (!unit) {
-    const dashMatch = addr.match(/^(\d{1,4})\s*-\s*(\d+.+)/);
+    const dashMatch = addr.match(/^(\d{1,4})\s*-\s*(\d+)\s+(.+)/);
     if (dashMatch) {
-      const possibleUnit = dashMatch[1];
-      const rest = dashMatch[2];
-      if (parseInt(possibleUnit) < 10000 && /^\d+\s+\w/.test(rest)) {
-        unit = possibleUnit;
-        addr = rest.trim();
+      const first = parseInt(dashMatch[1]);
+      const second = parseInt(dashMatch[2]);
+      const streetPart = dashMatch[3];
+      // It's a unit if: first number is much smaller than second (typical unit: 200-410)
+      // AND the numbers aren't close together (close = address range like 232-242)
+      const ratio = second / first;
+      const diff = Math.abs(second - first);
+      // Address range heuristic: numbers within 50 of each other, or both > 100 and within 2x
+      const isRange = (diff <= 50) || (first > 100 && ratio < 2);
+      if (!isRange && /^[A-Z]/.test(streetPart)) {
+        unit = dashMatch[1];
+        addr = `${dashMatch[2]} ${streetPart}`.trim();
+      } else if (isRange) {
+        // Keep as range address: "232-242 PINEHOUSE DRIVE"
+        addr = `${first}-${second} ${streetPart}`.trim();
       }
     }
   }
@@ -166,18 +198,21 @@ export function normalizeAddress(address: string | null | undefined): string | n
   // Normalize multiple spaces
   addr = addr.replace(/\s+/g, ' ').trim();
 
-  // Expand street type abbreviations (only the last word or second-to-last if direction follows)
+  // Expand street type abbreviations and direction suffixes
   const words = addr.split(' ');
+  let streetTypeFound = false;
   for (let i = 0; i < words.length; i++) {
     const word = words[i].replace(/[.,]/g, '');
     
-    // Expand direction abbreviations (typically last word)
-    if (DIRECTIONS[word]) {
-      words[i] = DIRECTIONS[word];
-    }
     // Expand street types
-    else if (STREET_TYPES[word]) {
+    if (STREET_TYPES[word]) {
       words[i] = STREET_TYPES[word];
+      streetTypeFound = true;
+    }
+    // Only expand direction abbreviations AFTER a street type or at the very end
+    // This prevents "NE Corned of Inland Drive" from expanding "NE"
+    else if (DIRECTIONS[word] && (streetTypeFound || i === words.length - 1) && i > 0) {
+      words[i] = DIRECTIONS[word];
     }
   }
 

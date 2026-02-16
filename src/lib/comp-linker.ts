@@ -4,7 +4,7 @@
  */
 import { db, schema } from "@/db";
 import { eq, sql } from "drizzle-orm";
-import { normalizeAddress, normalizeCity } from "@/lib/address";
+import { normalizeAddress, normalizeCity, displayAddress } from "@/lib/address";
 
 function normalizeCompanyName(name: string): string {
   return name.toLowerCase()
@@ -40,7 +40,7 @@ function matchOrCreateProperty(address: string, city?: string | null, province?:
   if (!normAddr) {
     // Can't normalize — create a property anyway
     const result = db.insert(schema.properties).values({
-      address,
+      address: displayAddress(normalizeAddress(address)) || address,
       city: city || 'Saskatoon',
       province: province || 'Saskatchewan',
       propertyType: propertyType || null,
@@ -64,7 +64,7 @@ function matchOrCreateProperty(address: string, city?: string | null, province?:
 
   // Create new property
   const result = db.insert(schema.properties).values({
-    address,
+    address: displayAddress(normAddr) || address,
     city: city || 'Saskatoon',
     province: province || 'Saskatchewan',
     propertyType: propertyType || null,

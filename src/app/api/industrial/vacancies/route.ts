@@ -94,9 +94,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const { normalizeAddress, displayAddress } = await import("@/lib/address");
+  const norm = normalizeAddress(body.address);
+  const display = norm ? displayAddress(norm) || body.address : body.address;
   const result = db.insert(schema.industrialVacancies).values({
     buildingId,
-    address: body.address,
+    address: display,
+    addressNormalized: norm,
     availableSF: body.availableSF || null,
     totalBuildingSF,
     listingBrokerage: body.listingBrokerage || null,

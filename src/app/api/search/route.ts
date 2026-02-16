@@ -127,7 +127,7 @@ export async function GET(req: NextRequest) {
 
   if (type === "all" || type === "properties") {
     const properties = db.select().from(schema.properties).all();
-    const matched = fuzzyMatch(properties, q, (p) => [p.address || "", p.neighbourhood || "", p.parcelId || ""]).slice(0, limit);
+    const matched = fuzzyMatch(properties, q, (p) => [p.address || "", p.addressNormalized || "", p.neighbourhood || "", p.parcelId || ""]).slice(0, limit);
     results.properties = matched.map((m) => ({ ...m.item, _score: m.score }));
   }
 

@@ -15,13 +15,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const [property] = db.select().from(schema.properties).where(eq(schema.properties.id, propId)).all();
   if (!property) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const transactions = db
-    .select()
-    .from(schema.transactions)
-    .where(eq(schema.transactions.propertyId, propId))
-    .orderBy(sql`transfer_date DESC`)
-    .all();
-
   const permits = db
     .select()
     .from(schema.permits)
@@ -37,7 +30,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     ORDER BY sale_date DESC
   `);
 
-  return NextResponse.json({ property, transactions, permits, comps });
+  return NextResponse.json({ property, transactions: [], permits, comps });
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

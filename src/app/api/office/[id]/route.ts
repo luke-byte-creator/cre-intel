@@ -40,8 +40,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (allowed.has(k)) updates[k] = v === "" ? null : v;
   }
   if (updates.address) {
-    const { normalizeAddress } = await import("@/lib/address");
-    updates.addressNormalized = normalizeAddress(updates.address as string);
+    const { normalizeAddress, displayAddress } = await import("@/lib/address");
+    const norm = normalizeAddress(updates.address as string);
+    updates.addressNormalized = norm;
+    updates.address = norm ? displayAddress(norm) || updates.address : updates.address;
   }
 
   await db.update(schema.officeBuildings).set(updates).where(eq(schema.officeBuildings.id, buildingId));

@@ -16,13 +16,14 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "type must be 'Sale' or 'Lease'" }, { status: 400 });
     }
 
-    const { normalizeAddress, normalizeCity } = await import("@/lib/address");
+    const { normalizeAddress, normalizeCity, displayAddress } = await import("@/lib/address");
+    const normAddr = normalizeAddress(body.address);
     const result = db.insert(schema.comps).values({
       type: body.type,
       propertyType: body.propertyType || null,
-      address: body.address,
+      address: normAddr ? displayAddress(normAddr) || body.address : body.address,
       city: body.city || "Saskatoon",
-      addressNormalized: normalizeAddress(body.address),
+      addressNormalized: normAddr,
       cityNormalized: normalizeCity(body.city || "Saskatoon"),
       province: body.province || "Saskatchewan",
       seller: body.seller || null,
