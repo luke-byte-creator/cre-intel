@@ -155,9 +155,10 @@ interface SalesPageProps {
   embeddedSizeMax?: string;
   embeddedDateFrom?: string;
   embeddedSource?: string;
+  embeddedResearchFilter?: "all" | "researched" | "unresearched";
 }
 
-export default function SalesPage({ embedded, embeddedSearch, embeddedPropertyType, embeddedCity, embeddedSizeMin, embeddedSizeMax, embeddedDateFrom, embeddedSource }: SalesPageProps = {}) {
+export default function SalesPage({ embedded, embeddedSearch, embeddedPropertyType, embeddedCity, embeddedSizeMin, embeddedSizeMax, embeddedDateFrom, embeddedSource, embeddedResearchFilter }: SalesPageProps = {}) {
   const [data, setData] = useState<Comp[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -192,6 +193,7 @@ export default function SalesPage({ embedded, embeddedSearch, embeddedPropertyTy
   const effectiveSizeMax = embedded ? (embeddedSizeMax || "") : sizeMax;
   const effectiveDateFrom = embedded ? (embeddedDateFrom || "") : dateFrom;
   const effectiveSource = embedded ? (embeddedSource || "All") : sourceFilter;
+  const effectiveResearchFilter = embedded ? (embeddedResearchFilter || "all") : researchFilter;
 
   useEffect(() => {
     fetch("/api/comps/cities").then(r => r.json()).then(setCities).catch(() => {});
@@ -209,8 +211,8 @@ export default function SalesPage({ embedded, embeddedSearch, embeddedPropertyTy
     if (priceMax) params.set("priceMax", priceMax);
     if (effectiveSizeMin) params.set("sizeMin", effectiveSizeMin);
     if (effectiveSizeMax) params.set("sizeMax", effectiveSizeMax);
-    if (researchFilter === "researched") params.set("researchedOnly", "true");
-    if (researchFilter === "unresearched") params.set("hideResearched", "true");
+    if (effectiveResearchFilter === "researched") params.set("researchedOnly", "true");
+    if (effectiveResearchFilter === "unresearched") params.set("hideResearched", "true");
     if (effectiveSource === "transfer") { params.set("source", "transfer"); }
     else if (effectiveSource === "not-transfer") { params.set("excludeSource", "transfer"); }
     else if (effectiveSource !== "All") { params.set("source", effectiveSource); }
@@ -222,7 +224,7 @@ export default function SalesPage({ embedded, embeddedSearch, embeddedPropertyTy
     } finally {
       setLoading(false);
     }
-  }, [page, effectiveSearch, effectivePropertyType, effectiveCity, effectiveDateFrom, dateTo, priceMin, priceMax, effectiveSizeMin, effectiveSizeMax, sortBy, sortDir, researchFilter, effectiveSource]);
+  }, [page, effectiveSearch, effectivePropertyType, effectiveCity, effectiveDateFrom, dateTo, priceMin, priceMax, effectiveSizeMin, effectiveSizeMax, sortBy, sortDir, effectiveResearchFilter, effectiveSource]);
 
   useEffect(() => {
     const t = setTimeout(fetchData, 200);

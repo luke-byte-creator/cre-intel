@@ -148,9 +148,10 @@ interface LeasesPageProps {
   embeddedSizeMax?: string;
   embeddedDateFrom?: string;
   embeddedSource?: string;
+  embeddedResearchFilter?: "all" | "researched" | "unresearched";
 }
 
-export default function LeasesPage({ embedded, embeddedSearch, embeddedPropertyType, embeddedCity, embeddedSizeMin, embeddedSizeMax, embeddedDateFrom, embeddedSource }: LeasesPageProps = {}) {
+export default function LeasesPage({ embedded, embeddedSearch, embeddedPropertyType, embeddedCity, embeddedSizeMin, embeddedSizeMax, embeddedDateFrom, embeddedSource, embeddedResearchFilter }: LeasesPageProps = {}) {
   const [data, setData] = useState<Comp[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -182,6 +183,7 @@ export default function LeasesPage({ embedded, embeddedSearch, embeddedPropertyT
   const effectiveSizeMax = embedded ? (embeddedSizeMax || "") : sizeMax;
   const effectiveDateFrom = embedded ? (embeddedDateFrom || "") : dateFrom;
   const effectiveSource = embedded ? (embeddedSource || "All") : "All";
+  const effectiveResearchFilter = embedded ? (embeddedResearchFilter || "all") : researchFilter;
 
   useEffect(() => {
     fetch("/api/comps/cities").then(r => r.json()).then(setCities).catch(() => {});
@@ -200,8 +202,8 @@ export default function LeasesPage({ embedded, embeddedSearch, embeddedPropertyT
     if (dateTo) params.set("dateTo", dateTo);
     if (effectiveSizeMin) params.set("sizeMin", effectiveSizeMin);
     if (effectiveSizeMax) params.set("sizeMax", effectiveSizeMax);
-    if (researchFilter === "researched") params.set("researchedOnly", "true");
-    if (researchFilter === "unresearched") params.set("hideResearched", "true");
+    if (effectiveResearchFilter === "researched") params.set("researchedOnly", "true");
+    if (effectiveResearchFilter === "unresearched") params.set("hideResearched", "true");
     try {
       const res = await fetch(`/api/comps?${params}`);
       const json = await res.json();
@@ -210,7 +212,7 @@ export default function LeasesPage({ embedded, embeddedSearch, embeddedPropertyT
     } finally {
       setLoading(false);
     }
-  }, [page, effectiveSearch, effectivePropertyType, effectiveCity, effectiveDateFrom, dateTo, effectiveSizeMin, effectiveSizeMax, sortBy, sortDir, researchFilter, effectiveSource]);
+  }, [page, effectiveSearch, effectivePropertyType, effectiveCity, effectiveDateFrom, dateTo, effectiveSizeMin, effectiveSizeMax, sortBy, sortDir, effectiveResearchFilter, effectiveSource]);
 
   useEffect(() => {
     const t = setTimeout(fetchData, 200);
@@ -439,6 +441,7 @@ export default function LeasesPage({ embedded, embeddedSearch, embeddedPropertyT
                   <th className="px-3 py-3 cursor-pointer hover:text-white" onClick={() => toggleSort("property_type")}>Type<SortIcon col="property_type" /></th>
                   <th className="px-3 py-3 cursor-pointer hover:text-white text-right" onClick={() => toggleSort("net_rent_psf")}>Rent/SF<SortIcon col="net_rent_psf" /></th>
                   <th className="px-3 py-3 cursor-pointer hover:text-white text-right" onClick={() => toggleSort("area_sf")}>Size<SortIcon col="area_sf" /></th>
+                  <th className="px-3 py-3 cursor-pointer hover:text-white" onClick={() => toggleSort("lease_start")}>Start<SortIcon col="lease_start" /></th>
                   <th className="px-3 py-3 text-center w-10">Status</th>
                 </tr>
               </thead>
@@ -539,13 +542,14 @@ function LeaseRow({ r, expanded, isSelected, onToggle, onSelect, onEdit, onRefre
         <td className="px-3 py-3" onClick={onToggle}><span className="px-2 py-0.5 rounded text-xs bg-zinc-600 text-zinc-200">{r.propertyType || "—"}</span></td>
         <td className="px-3 py-3 text-right font-mono text-white" onClick={onToggle}>{fmtRent(r.netRentPSF)}</td>
         <td className="px-3 py-3 text-right text-zinc-300" onClick={onToggle}>{fmtSF(r.areaSF)}</td>
+        <td className="px-3 py-3 text-zinc-300" onClick={onToggle}>{fmtD(r.leaseStart)}</td>
         <td className="px-3 py-3 text-center" onClick={onToggle}>
           <span className={`inline-block w-2.5 h-2.5 rounded-full ${r.isResearched ? "bg-emerald-500" : "bg-red-500"}`} title={r.isResearched ? "Researched" : "Not researched"} />
         </td>
       </tr>
       {expanded && (
         <tr className="bg-zinc-800/50">
-          <td colSpan={9} className="px-6 py-4">
+          <td colSpan={10} className="px-6 py-4">
             <ExpandedDetail r={r} onEdit={onEdit} onRefresh={onRefresh} />
           </td>
         </tr>
