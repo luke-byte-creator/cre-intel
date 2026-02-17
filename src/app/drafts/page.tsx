@@ -71,9 +71,7 @@ export default function DraftsPage() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [editContent, setEditContent] = useState("");
-  const [saving, setSaving] = useState(false);
-  // copy-to-clipboard removed per Luke's request — download .docx only
+  // Text preview + copy removed — download .docx only
   const [activeTab, setActiveTab] = useState<"drafts" | "new" | "presets">("drafts");
 
   // New draft form state
@@ -199,17 +197,6 @@ export default function DraftsPage() {
     }
   };
 
-  const handleSaveDraft = async (id: number) => {
-    setSaving(true);
-    await fetch(`/api/drafts/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ generatedContent: editContent }),
-    });
-    setSaving(false);
-    fetchDrafts();
-  };
-
   const handleDeleteDraft = async (id: number) => {
     if (!confirm("Delete this draft?")) return;
     await fetch(`/api/drafts/${id}`, { method: "DELETE" });
@@ -273,7 +260,7 @@ export default function DraftsPage() {
                   className="p-4 cursor-pointer hover:bg-white/[0.02] transition flex items-center justify-between"
                   onClick={() => {
                     if (isExpanded) { setExpandedId(null); }
-                    else { setExpandedId(draft.id); setEditContent(draft.generatedContent || ""); }
+                    else { setExpandedId(draft.id); }
                   }}
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -299,26 +286,75 @@ export default function DraftsPage() {
 
                 {isExpanded && (
                   <div className="border-t border-card-border p-4 space-y-3">
-                    <textarea
-                      value={editContent}
-                      onChange={e => setEditContent(e.target.value)}
-                      rows={20}
-                      className="w-full bg-background border border-card-border rounded-lg px-4 py-3 text-sm text-foreground font-mono resize-y"
-                    />
+                    {draft.instructions && (
+                      <div className="text-xs text-muted bg-background/50 rounded-lg p-3">
+                        <span className="font-medium text-foreground">Instructions:</span> {draft.instructions}
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 flex-wrap">
-                      <button onClick={() => handleSaveDraft(draft.id)}
-                        className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 transition">
-                        {saving ? "Saving…" : "Save Changes"}
-                      </button>
                       <button onClick={() => handleDownload(draft.id, draft.title)}
-                        className="px-4 py-2 bg-card border border-card-border text-foreground rounded-lg text-sm font-medium hover:bg-white/[0.04] transition">
-                        Download .docx
+                        className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 transition flex items-center gap-2">
+                        <span>↓</span> Download .docx
                       </button>
+                      {!draft.uploadedAt && draft.status !== "used_as_is" && (
+                        <button
+                          onClick={async () => {
+                            await fetch(`/api/drafts/${draft.id}`, {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ status: "used_as_is" }),
+                            });
+                            track("edit", "drafts", { action: "used_as_is", draftId: draft.id });
+                            fetchDrafts();
+                          }}
+                          className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-500 transition">
+                          I used it as-is ✓
+                        </button>
+                      )}
                       <button onClick={() => handleDeleteDraft(draft.id)}
                         className="px-3 py-2 text-red-400 hover:text-red-300 text-sm ml-auto">
                         Delete
                       </button>
                     </div>
+
+                    {/* Upload final for feedback */}
+                    {!draft.uploadedAt && draft.status !== "used_as_is" && (
+                      <div className="border-t border-card-border pt-3">
+                        <p className="text-xs text-muted mb-2">Upload your final version to help Nova learn your style</p>
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 border border-dashed border-card-border rounded-lg p-2">
+                            <input type="file" accept=".pdf,.docx,.txt"
+                              onChange={e => setFeedbackFile(e.target.files?.[0] || null)}
+                              className="text-sm text-foreground file:mr-3 file:py-1 file:px-2 file:rounded-lg file:border-0 file:bg-zinc-700 file:text-foreground file:text-xs file:cursor-pointer"
+                            />
+                          </div>
+                          <button
+                            disabled={!feedbackFile || uploadingFeedback}
+                            onClick={async () => {
+                              if (!feedbackFile) return;
+                              setUploadingFeedback(true);
+                              const fd = new FormData();
+                              fd.append("file", feedbackFile);
+                              try {
+                                const res = await fetch(`/api/drafts/${draft.id}/upload-final`, { method: "POST", body: fd });
+                                const data = await res.json();
+                                if (res.ok) {
+                                  track("upload", "drafts", { draftId: draft.id });
+                                  fetchDrafts();
+                                } else {
+                                  alert(data.error || "Upload failed");
+                                }
+                              } finally {
+                                setUploadingFeedback(false);
+                              }
+                            }}
+                            className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 disabled:opacity-40 transition whitespace-nowrap"
+                          >
+                            {uploadingFeedback ? "Analyzing…" : "Upload Final"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -403,52 +439,25 @@ export default function DraftsPage() {
             </div>
           )}
 
-          {/* Generated Result */}
-          {generatedContent && (
-            <div className="border border-card-border rounded-xl p-4 space-y-3 bg-background/50">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-foreground">Generated Draft</h3>
-                <span className="text-[10px] text-emerald-400">✓ Saved</span>
-              </div>
-              <textarea
-                value={generatedContent}
-                onChange={e => setGeneratedContent(e.target.value)}
-                rows={20}
-                className="w-full bg-background border border-card-border rounded-lg px-4 py-3 text-sm text-foreground font-mono resize-y"
-              />
-              <div className="flex items-center gap-2 flex-wrap">
-                {generatedDraft && (
-                  <button onClick={() => handleDownload(generatedDraft.id, generatedDraft.title || "draft")}
-                    className="px-4 py-2 bg-card border border-card-border text-foreground rounded-lg text-sm font-medium hover:bg-white/[0.04] transition">
-                    Download .docx
-                  </button>
-                )}
-                {generatedDraft && (
-                  <button onClick={async () => {
-                    await fetch(`/api/drafts/${generatedDraft.id}`, {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ generatedContent, status: "final" }),
-                    });
-                    fetchDrafts();
-                  }}
-                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-500 transition">
-                    Mark as Final
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Feedback Section */}
-          {generatedDraft && !generatedDraft.finalContent && !generatedDraft.uploadedAt && (
-            <div className="border border-card-border rounded-xl p-4 space-y-3 bg-card/50">
+          {/* Post-Generation Actions */}
+          {generatedDraft && (
+            <div className="border border-card-border rounded-xl p-5 space-y-4 bg-card/50">
               <div className="flex items-center gap-2">
-                <span className="text-lg">🎯</span>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Help Nova learn your style</p>
-                  <p className="text-xs text-muted">Upload your final version so Nova can improve future drafts</p>
-                </div>
+                <span className="text-emerald-400 text-lg">✓</span>
+                <h3 className="text-sm font-semibold text-foreground">Draft Ready</h3>
+              </div>
+
+              {/* Download */}
+              <button onClick={() => handleDownload(generatedDraft.id, generatedDraft.title || "draft")}
+                className="w-full py-3 bg-accent text-white rounded-lg text-sm font-semibold hover:bg-accent/80 transition flex items-center justify-center gap-2">
+                <span>↓</span> Download .docx
+              </button>
+
+              {/* Divider */}
+              <div className="flex items-center gap-2 pt-1">
+                <div className="flex-1 h-px bg-card-border" />
+                <span className="text-xs text-muted">after review</span>
+                <div className="flex-1 h-px bg-card-border" />
               </div>
 
               {feedbackResult ? (
@@ -459,39 +468,43 @@ export default function DraftsPage() {
                   })()}</p>
                 </div>
               ) : (
-                <>
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 border border-dashed border-card-border rounded-lg p-3">
-                      <input type="file" accept=".pdf,.docx,.txt"
-                        onChange={e => setFeedbackFile(e.target.files?.[0] || null)}
-                        className="text-sm text-foreground file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-zinc-700 file:text-foreground file:text-xs file:cursor-pointer"
-                      />
-                    </div>
-                    <button
-                      disabled={!feedbackFile || uploadingFeedback}
-                      onClick={async () => {
-                        if (!feedbackFile || !generatedDraft) return;
-                        setUploadingFeedback(true);
-                        const fd = new FormData();
-                        fd.append("file", feedbackFile);
-                        try {
-                          const res = await fetch(`/api/drafts/${generatedDraft.id}/upload-final`, { method: "POST", body: fd });
-                          const data = await res.json();
-                          if (res.ok) {
-                            setFeedbackResult(data.diffSummary);
-                            track("upload", "drafts", { draftId: generatedDraft.id });
-                            fetchDrafts();
-                          } else {
-                            alert(data.error || "Upload failed");
+                <div className="space-y-3">
+                  {/* Upload final version */}
+                  <div>
+                    <p className="text-xs text-muted mb-2">Upload your final version to help Nova learn your style</p>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 border border-dashed border-card-border rounded-lg p-3">
+                        <input type="file" accept=".pdf,.docx,.txt"
+                          onChange={e => setFeedbackFile(e.target.files?.[0] || null)}
+                          className="text-sm text-foreground file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-zinc-700 file:text-foreground file:text-xs file:cursor-pointer"
+                        />
+                      </div>
+                      <button
+                        disabled={!feedbackFile || uploadingFeedback}
+                        onClick={async () => {
+                          if (!feedbackFile || !generatedDraft) return;
+                          setUploadingFeedback(true);
+                          const fd = new FormData();
+                          fd.append("file", feedbackFile);
+                          try {
+                            const res = await fetch(`/api/drafts/${generatedDraft.id}/upload-final`, { method: "POST", body: fd });
+                            const data = await res.json();
+                            if (res.ok) {
+                              setFeedbackResult(data.diffSummary);
+                              track("upload", "drafts", { draftId: generatedDraft.id });
+                              fetchDrafts();
+                            } else {
+                              alert(data.error || "Upload failed");
+                            }
+                          } finally {
+                            setUploadingFeedback(false);
                           }
-                        } finally {
-                          setUploadingFeedback(false);
-                        }
-                      }}
-                      className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 disabled:opacity-40 transition whitespace-nowrap"
-                    >
-                      {uploadingFeedback ? "Analyzing…" : "Upload Final"}
-                    </button>
+                        }}
+                        className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 disabled:opacity-40 transition whitespace-nowrap"
+                      >
+                        {uploadingFeedback ? "Analyzing…" : "Upload Final"}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -500,6 +513,7 @@ export default function DraftsPage() {
                     <div className="flex-1 h-px bg-card-border" />
                   </div>
 
+                  {/* Mark as final (used as-is) */}
                   <button
                     disabled={markingAsIs}
                     onClick={async () => {
@@ -522,7 +536,7 @@ export default function DraftsPage() {
                   >
                     {markingAsIs ? "Saving…" : "I used it as-is ✓"}
                   </button>
-                </>
+                </div>
               )}
             </div>
           )}
