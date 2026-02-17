@@ -5,7 +5,7 @@ import { requireAuth } from "@/lib/auth";
 import fs from "fs";
 import path from "path";
 import { extractTextFromFile } from "@/lib/extract-text";
-import { applyChangesToDocx } from "@/lib/docx-edit";
+import { applyChangesToDocx, applyChangesToText, type DocumentChange } from "@/lib/docx-edit";
 
 function getGatewayConfig() {
   const configPath = path.join(process.env.HOME || "", ".openclaw", "openclaw.json");
@@ -16,10 +16,10 @@ function getGatewayConfig() {
   };
 }
 
-async function callAI(messages: { role: string; content: string }[], maxTokens = 4000) {
+async function callAI(messages: { role: string; content: string }[], maxTokens = 8000) {
   const { port, token } = getGatewayConfig();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120000); // 2 min
+  const timeout = setTimeout(() => controller.abort(), 120000);
   try {
     const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
       method: "POST",
@@ -33,7 +33,7 @@ async function callAI(messages: { role: string; content: string }[], maxTokens =
     });
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      console.error(`[drafts/generate] AI call failed: ${res.status}`, errBody.slice(0, 500));
+      console.error(`[drafts/generate] AI failed: ${res.status}`, errBody.slice(0, 500));
       throw new Error(`AI call failed: ${res.status}`);
     }
     const data = await res.json();
@@ -74,7 +74,6 @@ export async function POST(req: NextRequest) {
     let referenceDocPath: string | null = null;
     let isDocx = false;
 
-    // 1. Handle reference doc upload
     if (referenceDoc && referenceDoc.size > 0) {
       if (referenceDoc.size > 10 * 1024 * 1024) {
         return NextResponse.json({ error: "File too large (max 10MB)" }, { status: 400 });
@@ -92,9 +91,7 @@ export async function POST(req: NextRequest) {
       fs.writeFileSync(referenceDocPath, bytes);
 
       fullDocText = await extractTextFromFile(referenceDocPath, referenceDoc.type);
-    }
-    // 2. Use preset
-    else if (presetId) {
+    } else if (presetId) {
       const preset = await db.select().from(schema.documentPresets)
         .where(eq(schema.documentPresets.id, presetId)).limit(1);
       if (!preset[0]) return NextResponse.json({ error: "Preset not found" }, { status: 404 });
@@ -104,8 +101,7 @@ export async function POST(req: NextRequest) {
       } catch {
         fullDocText = preset[0].extractedStructure || "";
       }
-    }
-    else {
+    } else {
       return NextResponse.json({ error: "Please upload a reference document or select a preset" }, { status: 400 });
     }
 
@@ -113,55 +109,67 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Could not extract text from the reference document" }, { status: 400 });
     }
 
-    // 3. Fetch deal info if linked
+    // Deal context
     let dealContext = "";
     if (dealId) {
       const deal = await db.select().from(schema.deals).where(eq(schema.deals.id, dealId)).limit(1);
       if (deal[0]) {
         const d = deal[0];
-        dealContext = `\n\nDEAL INFORMATION (use to fill in [BLANK] fields if applicable):\n- Tenant: ${d.tenantName}\n- Company: ${d.tenantCompany || "N/A"}\n- Property: ${d.propertyAddress}`;
+        dealContext = `\n\nDEAL INFORMATION:\n- Tenant: ${d.tenantName}\n- Company: ${d.tenantCompany || "N/A"}\n- Property: ${d.propertyAddress}`;
         if (d.dealEconomics) {
           try {
             const econ = JSON.parse(d.dealEconomics);
             const inp = econ.inputs || {};
-            const res = econ.results || {};
-            dealContext += `\n- Square Footage: ${inp.sf || "[BLANK]"}\n- Base Rent: $${inp.baseRent || "[BLANK]"}/SF\n- Term: ${inp.term || "[BLANK]"} months\n- Start Date: ${inp.startDate || "[BLANK]"}\n- Free Rent: ${inp.freeRent || "0"} months\n- TI Allowance: $${inp.ti || "0"}/SF`;
+            dealContext += `\n- SF: ${inp.sf || "?"}\n- Rent: $${inp.baseRent || "?"}/SF\n- Term: ${inp.term || "?"} months\n- TI: $${inp.ti || "0"}/SF`;
           } catch {}
         }
       }
     }
 
-    // 4. Get AI to produce find-and-replace changes
     const docTypeLabel = DOC_TYPE_LABELS[documentType] || documentType;
     let generatedContent: string;
     let outputDocxPath: string | null = null;
 
     if (!instructions || instructions.trim() === "") {
-      // No changes — use original as-is
       generatedContent = fullDocText;
     } else {
+      // ─── AI produces STRUCTURED changes ───
       const changesResponse = await callAI([
         {
           role: "system",
-          content: `You are a document editing assistant for commercial real estate. You receive a document's full text and requested changes.
+          content: `You are a document editing assistant for commercial real estate. You receive a document's full text and requested changes from a broker.
 
-Your job: Output a JSON array of find-and-replace operations.
+Your job: Analyze the instructions and produce a JSON array of STRUCTURED change operations.
 
-Return ONLY a valid JSON array, no other text:
-[
-  { "find": "exact text from the document", "replace": "replacement text" }
-]
+CHANGE TYPES:
+
+1. **replace_all** — For names, entities, or terms that appear MULTIPLE TIMES throughout the document. This does a GLOBAL find-replace on every single occurrence.
+   { "type": "replace_all", "old": "exact name/term as it appears", "new": "replacement" }
+   USE THIS for: landlord names, tenant names, company names, property addresses, any term the user wants changed everywhere.
+   IMPORTANT: Check for ALL variations of the name (e.g., "Forster Harvard Developments", "FORSTER HARVARD DEVELOPMENTS", "Forster Harvard"). Create a separate replace_all for each variation.
+   ALSO USE THIS for simple term swaps like duration changes (e.g., "Ninety (90) day" → "Six (6) month", "ninety (90) calendar days" → "six (6) months"). If a term appears in multiple places, replace_all catches them all.
+
+2. **replace_value** — For changing a SPECIFIC value (dollar amount, percentage, date, duration) at a PARTICULAR location in the document.
+   { "type": "replace_value", "context": "20-30 words surrounding the value to locate it", "old": "exact old value", "new": "new value" }
+   USE THIS for: rent amounts, TI allowances, dates, percentages, durations.
+   IMPORTANT: When changing rent tables with multiple related values (monthly, yearly, PSF), create a separate replace_value for EACH number that needs to change. Recalculate monthly/yearly amounts based on the square footage in the document.
+
+3. **replace_section** — For modifying a larger block of text (a clause, a paragraph, a sentence).
+   { "type": "replace_section", "find": "the existing text to replace (copy verbatim from document)", "replace": "the new text" }
+   USE THIS for: rewriting clauses, changing fixturing periods (e.g., "ninety (90) day period" → "Six (6) month period"), modifying terms.
+   IMPORTANT: Copy the "find" text EXACTLY from the document — character for character.
+
+4. **add_after** — For ADDING entirely new content that doesn't exist in the document.
+   { "type": "add_after", "anchor": "text immediately before where new content should go", "content": "new content to insert" }
+   USE THIS for: new clauses, new sections, additional terms.
 
 CRITICAL RULES:
-1. "find" MUST be a verbatim substring from the document text — copy it exactly, character for character, including punctuation and spacing.
-2. "find" should be long enough to be unique — include 5-10 surrounding words.
-3. For ADDING new content (e.g. a new clause), find the text immediately before where the content should go, and include the original text + new content in "replace".
-4. For REMOVING content, set "replace" to "".
-5. Only make changes that are explicitly requested. Do NOT fix, rephrase, or improve anything else.
-6. For value changes (e.g. "change rent to $45"), find the surrounding sentence/clause containing the old value and include enough context to be unique.
-7. If a name or value appears multiple times, create a separate entry for each occurrence.
-8. When changing financial terms (rent, TI, etc.), also recalculate related figures (monthly, yearly, etc.) if they appear in the document.
-9. Return [] if no valid changes can be determined.`,
+- Be THOROUGH. If the user says "change the landlord name", you must catch EVERY variation in the document.
+- For replace_all: look at the document carefully and identify every form of the name (with/without "Inc.", ALL CAPS version, possessive form, etc.)
+- For financial changes: always recalculate dependent values (if rent changes, update monthly and yearly amounts too).
+- For durations: find ALL mentions — the clause itself AND any references to it elsewhere in the document.
+- Return ONLY a valid JSON array. No other text.
+- If you're unsure about a change, include it — better to attempt and miss than to skip it.`,
         },
         {
           role: "user",
@@ -173,54 +181,48 @@ ${dealContext}
 REQUESTED CHANGES:
 ${instructions}`,
         },
-      ], 8000);
+      ]);
 
-      // Parse AI response
-      let changes: Array<{ find: string; replace: string }> = [];
+      // Parse
+      let changes: DocumentChange[] = [];
       try {
         const jsonMatch = changesResponse.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
           changes = JSON.parse(jsonMatch[0]);
         }
       } catch (e) {
-        console.error("[drafts/generate] Failed to parse AI changes:", changesResponse.slice(0, 500));
-        return NextResponse.json({ error: "AI returned invalid changes. Please try again." }, { status: 500 });
+        console.error("[drafts/generate] Failed to parse changes:", changesResponse.slice(0, 500));
+        return NextResponse.json({ error: "AI returned invalid changes format. Please try again." }, { status: 500 });
       }
+
+      console.log(`[drafts/generate] AI produced ${changes.length} changes:`, changes.map(c => c.type));
 
       if (changes.length === 0) {
         generatedContent = fullDocText;
       } else if (isDocx && referenceDocPath) {
-        // Apply changes directly inside the .docx XML
-        const { buffer, applied, total } = await applyChangesToDocx(referenceDocPath, changes);
-        console.log(`[drafts/generate] Applied ${applied}/${total} changes to .docx XML`);
+        // Apply directly to .docx XML
+        const { buffer, applied, total, log } = await applyChangesToDocx(referenceDocPath, changes);
+        console.log(`[drafts/generate] Applied ${applied}/${total} to .docx:`);
+        log.forEach(l => console.log(`  ${l}`));
 
-        // Save the modified .docx
         const draftsDir = path.join(process.cwd(), "data", "drafts");
         const outputFilename = `output_${auth.user.id}_${Date.now()}.docx`;
         outputDocxPath = path.join(draftsDir, outputFilename);
         fs.writeFileSync(outputDocxPath, buffer);
 
-        // Also apply to text for the DB record
-        generatedContent = fullDocText;
-        for (const change of changes) {
-          if (!change.find || typeof change.replace !== "string") continue;
-          if (generatedContent.includes(change.find)) {
-            generatedContent = generatedContent.replace(change.find, change.replace);
-          }
-        }
+        // Also apply to text for DB
+        const textResult = applyChangesToText(fullDocText, changes);
+        generatedContent = textResult.text;
       } else {
-        // Non-docx (PDF, etc.) — apply to text only
-        generatedContent = fullDocText;
-        for (const change of changes) {
-          if (!change.find || typeof change.replace !== "string") continue;
-          if (generatedContent.includes(change.find)) {
-            generatedContent = generatedContent.replace(change.find, change.replace);
-          }
-        }
+        // Non-docx fallback
+        const textResult = applyChangesToText(fullDocText, changes);
+        generatedContent = textResult.text;
+        console.log(`[drafts/generate] Applied ${textResult.applied}/${changes.length} to text`);
+        textResult.log.forEach(l => console.log(`  ${l}`));
       }
     }
 
-    // 5. Save to database
+    // Save
     const title = `${docTypeLabel} — ${new Date().toLocaleDateString("en-CA")}`;
     const now = new Date().toISOString();
     const result = await db.insert(schema.documentDrafts).values({
