@@ -164,8 +164,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   // Check for pre-built .docx files (from direct XML editing)
   const possiblePaths = [
     draft.finalDocPath,
-    // extractedStructure stores the output path when it's a .docx path
-    draft.extractedStructure?.endsWith(".docx") ? draft.extractedStructure : null,
     path.join(process.cwd(), "data", "drafts", `${draft.id}.docx`),
   ].filter(Boolean) as string[];
 
