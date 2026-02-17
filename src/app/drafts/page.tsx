@@ -73,7 +73,7 @@ export default function DraftsPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
-  const [copied, setCopied] = useState(false);
+  // copy-to-clipboard removed per Luke's request — download .docx only
   const [activeTab, setActiveTab] = useState<"drafts" | "new" | "presets">("drafts");
 
   // New draft form state
@@ -223,22 +223,9 @@ export default function DraftsPage() {
     fetchPresets();
   };
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    track("copy", "drafts");
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleDownload = (text: string, title: string) => {
+  const handleDownload = (draftId: number, title: string) => {
     track("download", "drafts", { title });
-    const blob = new Blob([text], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${title.replace(/[^a-zA-Z0-9]/g, "_")}.docx`;
-    a.click();
-    URL.revokeObjectURL(url);
+    window.open(`/api/drafts/${draftId}/download`, "_blank");
   };
 
   if (loading) return <div className="p-8 text-muted">Loading drafts…</div>;
@@ -323,11 +310,7 @@ export default function DraftsPage() {
                         className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 transition">
                         {saving ? "Saving…" : "Save Changes"}
                       </button>
-                      <button onClick={() => handleCopy(editContent)}
-                        className="px-4 py-2 bg-card border border-card-border text-foreground rounded-lg text-sm font-medium hover:bg-white/[0.04] transition">
-                        {copied ? "✓ Copied" : "Copy to Clipboard"}
-                      </button>
-                      <button onClick={() => handleDownload(editContent, draft.title)}
+                      <button onClick={() => handleDownload(draft.id, draft.title)}
                         className="px-4 py-2 bg-card border border-card-border text-foreground rounded-lg text-sm font-medium hover:bg-white/[0.04] transition">
                         Download .docx
                       </button>
@@ -434,14 +417,12 @@ export default function DraftsPage() {
                 className="w-full bg-background border border-card-border rounded-lg px-4 py-3 text-sm text-foreground font-mono resize-y"
               />
               <div className="flex items-center gap-2 flex-wrap">
-                <button onClick={() => handleCopy(generatedContent)}
-                  className="px-4 py-2 bg-card border border-card-border text-foreground rounded-lg text-sm font-medium hover:bg-white/[0.04] transition">
-                  {copied ? "✓ Copied" : "Copy to Clipboard"}
-                </button>
-                <button onClick={() => handleDownload(generatedContent, generatedDraft?.title || "draft")}
-                  className="px-4 py-2 bg-card border border-card-border text-foreground rounded-lg text-sm font-medium hover:bg-white/[0.04] transition">
-                  Download .docx
-                </button>
+                {generatedDraft && (
+                  <button onClick={() => handleDownload(generatedDraft.id, generatedDraft.title || "draft")}
+                    className="px-4 py-2 bg-card border border-card-border text-foreground rounded-lg text-sm font-medium hover:bg-white/[0.04] transition">
+                    Download .docx
+                  </button>
+                )}
                 {generatedDraft && (
                   <button onClick={async () => {
                     await fetch(`/api/drafts/${generatedDraft.id}`, {
