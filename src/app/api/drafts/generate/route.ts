@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
 import fs from "fs";
 import path from "path";
+import { extractTextFromFile } from "@/lib/extract-text";
 
 // Read OpenClaw gateway config
 function getGatewayConfig() {
@@ -15,7 +16,7 @@ function getGatewayConfig() {
   };
 }
 
-async function callAI(messages: { role: string; content: string }[]) {
+async function callAI(messages: { role: string; content: string }[], maxTokens = 16000) {
   const { port, token } = getGatewayConfig();
   const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
     method: "POST",
@@ -23,15 +24,13 @@ async function callAI(messages: { role: string; content: string }[]) {
     body: JSON.stringify({
       model: "anthropic/claude-sonnet-4-20250514",
       messages,
-      max_tokens: 8000,
+      max_tokens: maxTokens,
     }),
   });
   if (!res.ok) throw new Error(`AI call failed: ${res.status}`);
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "";
 }
-
-import { extractTextFromFile } from "@/lib/extract-text";
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   otl: "Offer to Lease",
@@ -59,10 +58,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "documentType is required" }, { status: 400 });
   }
 
-  let extractedStructure: string | null = null;
+  let fullDocText: string | null = null;
   let referenceDocPath: string | null = null;
 
-  // 1. Handle reference doc upload
+  // 1. Handle reference doc upload — extract FULL TEXT (not structure summary)
   if (referenceDoc && referenceDoc.size > 0) {
     if (referenceDoc.size > 10 * 1024 * 1024) {
       return NextResponse.json({ error: "File too large (max 10MB)" }, { status: 400 });
@@ -78,99 +77,85 @@ export async function POST(req: NextRequest) {
     const bytes = new Uint8Array(await referenceDoc.arrayBuffer());
     fs.writeFileSync(referenceDocPath, bytes);
 
-    // Extract text
-    const docText = await extractTextFromFile(referenceDocPath, referenceDoc.type);
-
-    // Call AI to extract structure
-    const extractionResponse = await callAI([
-      {
-        role: "system",
-        content: `You are a document structure analyzer for commercial real estate documents. Analyze the provided document and extract its structure as JSON. Return ONLY valid JSON with this format:
-{
-  "sections": [
-    { "title": "Section title", "content_summary": "Brief summary of what this section covers", "is_standard_language": true/false, "has_deal_specific_fields": true/false }
-  ],
-  "language_style": "formal/semi-formal/casual",
-  "formatting_notes": "Any notable formatting patterns",
-  "typical_fields_used": ["list", "of", "fields", "found"],
-  "raw_text_excerpt": "First 2000 chars of extracted text for reference"
-}`,
-      },
-      {
-        role: "user",
-        content: `Analyze this ${DOC_TYPE_LABELS[documentType] || documentType} document and extract its structure:\n\n${docText.slice(0, 15000)}`,
-      },
-    ]);
-
-    try {
-      // Try to parse the JSON from the response
-      const jsonMatch = extractionResponse.match(/\{[\s\S]*\}/);
-      extractedStructure = jsonMatch ? jsonMatch[0] : extractionResponse;
-      JSON.parse(extractedStructure!); // validate
-    } catch {
-      extractedStructure = JSON.stringify({
-        sections: [{ title: "Full Document", content_summary: "Could not parse structure", is_standard_language: true, has_deal_specific_fields: true }],
-        language_style: "formal",
-        formatting_notes: "Structure extraction failed, using raw text",
-        typical_fields_used: [],
-        raw_text_excerpt: docText.slice(0, 2000),
-      });
-    }
+    fullDocText = await extractTextFromFile(referenceDocPath, referenceDoc.type);
   }
-  // 2. Use preset
+  // 2. Use preset — load stored full text
   else if (presetId) {
     const preset = await db.select().from(schema.documentPresets)
       .where(eq(schema.documentPresets.id, presetId)).limit(1);
     if (!preset[0]) return NextResponse.json({ error: "Preset not found" }, { status: 404 });
-    extractedStructure = preset[0].extractedStructure;
+    // extractedStructure on presets still holds the old format — try to get raw_text_excerpt or use as-is
+    try {
+      const parsed = JSON.parse(preset[0].extractedStructure || "{}");
+      fullDocText = parsed.raw_text_excerpt || preset[0].extractedStructure || "";
+    } catch {
+      fullDocText = preset[0].extractedStructure || "";
+    }
   }
   // 3. Neither
   else {
     return NextResponse.json({ error: "Please upload a reference document or select a preset" }, { status: 400 });
   }
 
-  // 4. Fetch deal info if linked
+  if (!fullDocText || fullDocText.trim().length === 0) {
+    return NextResponse.json({ error: "Could not extract text from the reference document" }, { status: 400 });
+  }
+
+  // 3. Fetch deal info if linked
   let dealContext = "";
   if (dealId) {
     const deal = await db.select().from(schema.deals).where(eq(schema.deals.id, dealId)).limit(1);
     if (deal[0]) {
       const d = deal[0];
-      dealContext = `\n\nDEAL INFORMATION:\n- Tenant: ${d.tenantName}\n- Company: ${d.tenantCompany || "N/A"}\n- Property: ${d.propertyAddress}\n- Email: ${d.tenantEmail || "N/A"}\n- Phone: ${d.tenantPhone || "N/A"}`;
+      dealContext = `\n\nDEAL INFORMATION (use to fill in [BLANK] fields if applicable):\n- Tenant: ${d.tenantName}\n- Company: ${d.tenantCompany || "N/A"}\n- Property: ${d.propertyAddress}\n- Email: ${d.tenantEmail || "N/A"}\n- Phone: ${d.tenantPhone || "N/A"}`;
       if (d.dealEconomics) {
         try {
           const econ = JSON.parse(d.dealEconomics);
           const inp = econ.inputs || {};
           const res = econ.results || {};
-          dealContext += `\n\nDEAL ECONOMICS:\n- Square Footage: ${inp.sf || "[BLANK]"}\n- Base Rent: $${inp.baseRent || "[BLANK]"}/SF\n- Term: ${inp.term || "[BLANK]"} months\n- Start Date: ${inp.startDate || "[BLANK]"}\n- Free Rent: ${inp.freeRent || "0"} months\n- TI Allowance: $${inp.ti || "0"}/SF\n- Commission Rate: ${inp.commRate || "[BLANK]"}%\n- Other Expenses: $${inp.otherExpense || "0"}\n- Net Effective Rent: $${res.nerYear?.toFixed(2) || "[BLANK]"}/SF/yr\n- Total Consideration: $${res.totalConsideration?.toFixed(0) || "[BLANK]"}\n- Commission: $${res.commission?.toFixed(0) || "[BLANK]"}`;
+          dealContext += `\n- Square Footage: ${inp.sf || "[BLANK]"}\n- Base Rent: $${inp.baseRent || "[BLANK]"}/SF\n- Term: ${inp.term || "[BLANK]"} months\n- Start Date: ${inp.startDate || "[BLANK]"}\n- Free Rent: ${inp.freeRent || "0"} months\n- TI Allowance: $${inp.ti || "0"}/SF\n- Net Effective Rent: $${res.nerYear?.toFixed(2) || "[BLANK]"}/SF/yr`;
           if (inp.rentSteps) dealContext += `\n- Rent Steps: ${inp.rentSteps}`;
         } catch {}
       }
     }
   }
 
-  // 5. Generate the draft
+  // 4. Generate the draft — SURGICAL EDIT approach
+  // The reference document IS the output. AI only applies the requested changes.
   const docTypeLabel = DOC_TYPE_LABELS[documentType] || documentType;
+
   const generatedContent = await callAI([
     {
       role: "system",
-      content: `You are a commercial real estate document drafter. Generate a ${docTypeLabel} following the provided structure exactly.
+      content: `You are a commercial real estate document editor. You will receive a REFERENCE DOCUMENT and a set of REQUESTED CHANGES.
+
+YOUR JOB: Reproduce the reference document EXACTLY, word-for-word, with ONLY the requested changes applied.
 
 CRITICAL RULES:
-- Do NOT invent or hallucinate any legal clauses, dollar amounts, dates, or terms not provided in the deal data or reference structure.
-- Use [BLANK] for any missing information you don't have data for.
-- Follow the extracted structure's section order, language style, and formatting.
-- Fill in deal-specific data from the provided economics where available.
-- Maintain the same level of formality as the reference document.
-- Output the document as clean, formatted text ready for use.`,
+- The reference document is the SOURCE OF TRUTH. Every word, sentence, clause, paragraph, and section that is NOT mentioned in the requested changes MUST remain IDENTICAL.
+- Do NOT rephrase, reword, reorganize, or "improve" anything that wasn't explicitly asked to change.
+- Do NOT add new clauses, sections, or language unless explicitly requested.
+- Do NOT remove any content unless explicitly requested.
+- Do NOT change formatting, capitalization, or punctuation unless explicitly requested.
+- If a change references a specific field (e.g. "change rent to $45"), find that field in the document and update ONLY that value.
+- Use [BLANK] for any information referenced in changes that you don't have a specific value for.
+- Output the COMPLETE document — not just the changed parts.
+- Preserve the document's original formatting style (numbered sections, lettered subsections, etc.).`,
     },
     {
       role: "user",
-      content: `Generate a ${docTypeLabel} based on this structure:\n\n${extractedStructure}${dealContext}${instructions ? `\n\nADDITIONAL INSTRUCTIONS:\n${instructions}` : ""}`,
+      content: `REFERENCE DOCUMENT (reproduce this exactly, applying only the changes below):
+
+${fullDocText}
+${dealContext}
+
+REQUESTED CHANGES:
+${instructions || "No changes requested — reproduce the document as-is."}`,
     },
   ]);
 
-  // 6. Save to database
-  const title = `${docTypeLabel}${dealId ? "" : ""} — ${new Date().toLocaleDateString("en-CA")}`;
+  // 5. Save to database
+  const title = `${docTypeLabel} — ${new Date().toLocaleDateString("en-CA")}`;
   const now = new Date().toISOString();
   const result = await db.insert(schema.documentDrafts).values({
     userId: auth.user.id,
@@ -178,7 +163,7 @@ CRITICAL RULES:
     documentType,
     title,
     referenceDocPath,
-    extractedStructure,
+    extractedStructure: fullDocText.slice(0, 50000), // store full text instead of structure summary
     generatedContent,
     instructions: instructions || null,
     status: "draft",
