@@ -2,6 +2,8 @@ import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
+import fs from "fs";
+import path from "path";
 import {
   Document,
   Packer,
@@ -157,6 +159,30 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!rows.length) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
 
   const draft = rows[0];
+  const filename = `${(draft.title || "draft").replace(/[^a-zA-Z0-9 _-]/g, "").replace(/\s+/g, "_")}.docx`;
+
+  // Check for pre-built .docx files (from direct XML editing)
+  const possiblePaths = [
+    draft.finalDocPath,
+    // extractedStructure stores the output path when it's a .docx path
+    draft.extractedStructure?.endsWith(".docx") ? draft.extractedStructure : null,
+    path.join(process.cwd(), "data", "drafts", `${draft.id}.docx`),
+  ].filter(Boolean) as string[];
+
+  for (const docxPath of possiblePaths) {
+    if (fs.existsSync(docxPath)) {
+      const fileBuffer = fs.readFileSync(docxPath);
+      return new NextResponse(new Uint8Array(fileBuffer), {
+        headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+          "Content-Length": String(fileBuffer.length),
+        },
+      });
+    }
+  }
+
+  // Fallback: generate .docx from text content (for PDF-sourced or legacy drafts)
   const content = draft.generatedContent || "";
 
   const doc = new Document({
@@ -182,8 +208,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   });
 
   const buffer = await Packer.toBuffer(doc);
-
-  const filename = `${(draft.title || "draft").replace(/[^a-zA-Z0-9 _-]/g, "").replace(/\s+/g, "_")}.docx`;
 
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
