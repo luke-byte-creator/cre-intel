@@ -16,20 +16,31 @@ function getGatewayConfig() {
   };
 }
 
-async function callAI(messages: { role: string; content: string }[], maxTokens = 16000) {
+async function callAI(messages: { role: string; content: string }[], maxTokens = 32000) {
   const { port, token } = getGatewayConfig();
-  const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({
-      model: "anthropic/claude-sonnet-4-20250514",
-      messages,
-      max_tokens: maxTokens,
-    }),
-  });
-  if (!res.ok) throw new Error(`AI call failed: ${res.status}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 240000); // 4 min timeout
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        model: "anthropic/claude-sonnet-4-20250514",
+        messages,
+        max_tokens: maxTokens,
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      console.error(`[drafts/generate] AI call failed: ${res.status}`, errBody.slice(0, 500));
+      throw new Error(`AI call failed: ${res.status}`);
+    }
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 const DOC_TYPE_LABELS: Record<string, string> = {
@@ -47,6 +58,7 @@ export async function POST(req: NextRequest) {
   const auth = await requireAuth(req);
   if (auth instanceof Response) return auth;
 
+  try {
   const formData = await req.formData();
   const documentType = formData.get("documentType") as string;
   const dealId = formData.get("dealId") ? Number(formData.get("dealId")) : null;
@@ -172,4 +184,9 @@ ${instructions || "No changes requested — reproduce the document as-is."}`,
   }).returning();
 
   return NextResponse.json({ draft: result[0], content: generatedContent });
+  } catch (e: any) {
+    console.error("[drafts/generate] Error:", e);
+    const msg = e?.name === "AbortError" ? "Generation timed out — document may be too large" : (e?.message || "Generation failed");
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
