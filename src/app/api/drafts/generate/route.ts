@@ -132,39 +132,101 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 4. Generate the draft — SURGICAL EDIT approach
-  // The reference document IS the output. AI only applies the requested changes.
+  // 4. Generate the draft — FIND-AND-REPLACE approach
+  // AI outputs only the changes as JSON, we apply them to the original text.
+  // This is MUCH faster than asking AI to reproduce the entire document.
   const docTypeLabel = DOC_TYPE_LABELS[documentType] || documentType;
 
-  const generatedContent = await callAI([
-    {
-      role: "system",
-      content: `You are a commercial real estate document editor. You will receive a REFERENCE DOCUMENT and a set of REQUESTED CHANGES.
+  let generatedContent: string;
 
-YOUR JOB: Reproduce the reference document EXACTLY, word-for-word, with ONLY the requested changes applied.
+  if (!instructions || instructions.trim() === "") {
+    // No changes requested — use the original text as-is
+    generatedContent = fullDocText;
+  } else {
+    const changesResponse = await callAI([
+      {
+        role: "system",
+        content: `You are a commercial real estate document editor. You will receive a REFERENCE DOCUMENT and REQUESTED CHANGES.
 
-CRITICAL RULES:
-- The reference document is the SOURCE OF TRUTH. Every word, sentence, clause, paragraph, and section that is NOT mentioned in the requested changes MUST remain IDENTICAL.
-- Do NOT rephrase, reword, reorganize, or "improve" anything that wasn't explicitly asked to change.
-- Do NOT add new clauses, sections, or language unless explicitly requested.
-- Do NOT remove any content unless explicitly requested.
-- Do NOT change formatting, capitalization, or punctuation unless explicitly requested.
-- If a change references a specific field (e.g. "change rent to $45"), find that field in the document and update ONLY that value.
-- Use [BLANK] for any information referenced in changes that you don't have a specific value for.
-- Output the COMPLETE document — not just the changed parts.
-- Preserve the document's original formatting style (numbered sections, lettered subsections, etc.).`,
-    },
-    {
-      role: "user",
-      content: `REFERENCE DOCUMENT (reproduce this exactly, applying only the changes below):
+YOUR JOB: Output a JSON array of find-and-replace operations to apply the requested changes to the document.
+
+OUTPUT FORMAT — return ONLY a valid JSON array, no other text:
+[
+  { "find": "exact text to find in the document", "replace": "replacement text" },
+  { "find": "another exact phrase", "replace": "its replacement" }
+]
+
+RULES:
+- "find" must be an EXACT substring from the reference document (copy it precisely, including punctuation and spacing).
+- "find" should be long enough to be unique in the document (include surrounding context words if needed).
+- "replace" is the new text that should replace the found text.
+- Only include changes that are explicitly requested. Do NOT fix, rephrase, or "improve" anything else.
+- If a requested change requires ADDING new text (e.g. a new clause), use "find" to locate the insertion point (the text right before where the new content should go) and include the original text + new text in "replace".
+- If a requested change requires REMOVING text, set "replace" to "".
+- Use [BLANK] for any values you don't have data for.
+- Return an empty array [] if no valid changes can be determined.`,
+      },
+      {
+        role: "user",
+        content: `REFERENCE DOCUMENT:
 
 ${fullDocText}
 ${dealContext}
 
 REQUESTED CHANGES:
-${instructions || "No changes requested — reproduce the document as-is."}`,
-    },
-  ]);
+${instructions}`,
+      },
+    ], 4000);
+
+    // Parse the JSON changes and apply them
+    let changes: Array<{ find: string; replace: string }> = [];
+    try {
+      const jsonMatch = changesResponse.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        changes = JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.error("[drafts/generate] Failed to parse AI changes JSON:", changesResponse.slice(0, 500));
+    }
+
+    // Apply changes to the original document
+    generatedContent = fullDocText;
+    let applied = 0;
+    for (const change of changes) {
+      if (!change.find || typeof change.replace !== "string") continue;
+
+      // Try exact match first
+      if (generatedContent.includes(change.find)) {
+        generatedContent = generatedContent.replace(change.find, change.replace);
+        applied++;
+        continue;
+      }
+
+      // Try normalized whitespace match (AI often reformats whitespace)
+      const normalizeWs = (s: string) => s.replace(/\s+/g, " ").trim();
+      const findNorm = normalizeWs(change.find);
+      // Search through the document with normalized whitespace
+      let found = false;
+      // Sliding window: find a substring in the original that matches when normalized
+      for (let start = 0; start < generatedContent.length && !found; start++) {
+        // Only check positions that start with a similar character
+        if (generatedContent[start].toLowerCase() !== change.find[0]?.toLowerCase()) continue;
+        for (let end = start + findNorm.length - 5; end <= Math.min(start + change.find.length * 2, generatedContent.length); end++) {
+          const candidate = generatedContent.slice(start, end);
+          if (normalizeWs(candidate) === findNorm) {
+            generatedContent = generatedContent.slice(0, start) + change.replace + generatedContent.slice(end);
+            found = true;
+            applied++;
+            break;
+          }
+        }
+      }
+      if (!found) {
+        console.warn(`[drafts/generate] Could not find: "${change.find.slice(0, 80)}"`);
+      }
+    }
+    console.log(`[drafts/generate] Applied ${applied}/${changes.length} changes`);
+  }
 
   // 5. Save to database
   const title = `${docTypeLabel} — ${new Date().toLocaleDateString("en-CA")}`;
