@@ -499,16 +499,33 @@ export default function UnderwritePage() {
       const analysis = await res.json();
       if (!res.ok) throw new Error(analysis.error);
 
-      // 2. Upload files
+      // 2. Upload files (5 min timeout per file for large PDFs over tunnel)
       for (const f of files) {
         if (!f.file) continue;
         const fd = new FormData();
         fd.append("file", f.file);
-        await fetch(`/api/underwrite/${analysis.id}/upload`, { method: "POST", body: fd });
+        const uploadCtrl = new AbortController();
+        const uploadTimeout = setTimeout(() => uploadCtrl.abort(), 300000);
+        try {
+          const uploadRes = await fetch(`/api/underwrite/${analysis.id}/upload`, { method: "POST", body: fd, signal: uploadCtrl.signal });
+          if (!uploadRes.ok) {
+            const err = await uploadRes.json().catch(() => ({ error: "Upload failed" }));
+            throw new Error(err.error || `Upload failed (${uploadRes.status})`);
+          }
+        } finally {
+          clearTimeout(uploadTimeout);
+        }
       }
 
-      // 3. Extract
-      const extractRes = await fetch(`/api/underwrite/${analysis.id}/extract`, { method: "POST" });
+      // 3. Extract (5 min timeout — AI extraction can be slow for large docs)
+      const extractCtrl = new AbortController();
+      const extractTimeout = setTimeout(() => extractCtrl.abort(), 300000);
+      let extractRes;
+      try {
+        extractRes = await fetch(`/api/underwrite/${analysis.id}/extract`, { method: "POST", signal: extractCtrl.signal });
+      } finally {
+        clearTimeout(extractTimeout);
+      }
       const extractData = await extractRes.json();
       if (!extractRes.ok) throw new Error(extractData.error);
 

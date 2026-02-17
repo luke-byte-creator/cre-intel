@@ -147,7 +147,7 @@ export default function PixelOffice({ leaderboard = [] }: { leaderboard?: Leader
         .catch(() => {});
     };
     poll();
-    const iv = setInterval(poll, 30 * 60 * 1000); // 30 minutes
+    const iv = setInterval(poll, 5 * 60 * 1000); // 5 minutes (demo mode — revert to 30 after launch)
     return () => clearInterval(iv);
   }, []);
 
@@ -221,12 +221,12 @@ export default function PixelOffice({ leaderboard = [] }: { leaderboard?: Leader
     ctx.fillStyle = "#37474F";
     ctx.fillRect(ox + 112, 40, 20, 20);
 
-    // "NOVA" nameplate
+    // "NOVA" nameplate (front of desk)
     ctx.fillStyle = "#F1C40F";
-    ctx.fillRect(ox + 95, 62, 60, 14);
+    ctx.fillRect(ox + 95, 82, 60, 14);
     ctx.fillStyle = "#0f0f1a";
     ctx.font = "bold 12px monospace";
-    ctx.fillText("NOVA", ox + 110, 72);
+    ctx.fillText("NOVA", ox + 110, 92);
 
     // Leather couch
     ctx.fillStyle = "#3E2723";
