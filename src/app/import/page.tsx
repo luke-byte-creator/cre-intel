@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import Link from "next/link";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface ExtractedComp { [key: string]: any }
@@ -36,7 +37,38 @@ interface ImportResult {
   error?: string;
 }
 
+interface PendingComp {
+  id: number;
+  type: string;
+  address: string;
+  tenant?: string;
+  landlord?: string;
+  seller?: string;
+  purchaser?: string;
+  salePrice?: number;
+  saleDate?: string;
+  leaseStart?: string;
+  leaseExpiry?: string;
+  netRentPSF?: number;
+  areaSF?: number;
+  propertyType?: string;
+  sourceRef: string;
+  confidence: number;
+  fieldConfidence: Record<string, { confidence: number; source: string }>;
+  missingFields: string[];
+  notes?: string;
+  status: string;
+  duplicateOfId?: number;
+  createdAt: string;
+}
+
 export default function ImportPage() {
+  const [pendingComps, setPendingComps] = useState<PendingComp[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [pendingLoaded, setPendingLoaded] = useState(false);
+  const [selectedComps, setSelectedComps] = useState<Set<number>>(new Set());
+  const [showDetails, setShowDetails] = useState<Set<number>>(new Set());
+
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [results, setResults] = useState<ImportResult[]>([]);
@@ -174,6 +206,62 @@ export default function ImportPage() {
       default: return "📁";
     }
   };
+
+  // ─── Pending comps logic ──────────────────────────────────────────────
+
+  const fetchPendingComps = useCallback(async () => {
+    setPendingLoading(true);
+    try {
+      const res = await fetch("/api/comps/pending");
+      if (res.ok) {
+        const data = await res.json();
+        setPendingComps(data.comps || []);
+        setPendingLoaded(true);
+      }
+    } catch (e) {
+      console.error("Failed to fetch pending comps:", e);
+    } finally {
+      setPendingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!pendingLoaded) fetchPendingComps();
+  }, [pendingLoaded, fetchPendingComps]);
+
+  const handlePendingAction = async (action: string, compIds?: number[]) => {
+    const targetIds = compIds || Array.from(selectedComps);
+    if (targetIds.length === 0) return;
+    try {
+      const res = await fetch("/api/comps/pending", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, compIds: targetIds }),
+      });
+      if (res.ok) {
+        await fetchPendingComps();
+        setSelectedComps(new Set());
+      }
+    } catch (e) {
+      console.error(`${action} failed:`, e);
+    }
+  };
+
+  const toggleCompSelection = (id: number) => {
+    const s = new Set(selectedComps);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelectedComps(s);
+  };
+
+  const toggleCompDetails = (id: number) => {
+    const s = new Set(showDetails);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setShowDetails(s);
+  };
+
+  const getConfidenceColor = (c: number) => c >= 0.8 ? "text-emerald-400" : c >= 0.6 ? "text-yellow-400" : "text-red-400";
+
+  // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -567,6 +655,124 @@ export default function ImportPage() {
             <p className="text-muted mt-1">Property transfer records — roll#, address, vendor, purchaser, price</p>
           </div>
         </div>
+      </div>
+
+      {/* ─── Pending Comps ──────────────────────────────────────────────── */}
+      <div className="pt-2">
+        <h2 className="text-lg font-semibold text-foreground mb-1">
+          Pending Comps
+          {pendingLoaded && pendingComps.length > 0 && (
+            <span className="ml-2 text-sm font-normal text-muted">({pendingComps.length})</span>
+          )}
+        </h2>
+        <p className="text-sm text-muted mb-4">Comps submitted via email #comp tags that need review before importing</p>
+
+        {pendingLoading ? (
+          <div className="text-muted text-sm">Loading pending comps...</div>
+        ) : (
+          <>
+            {selectedComps.size > 0 && (
+              <div className="bg-card border border-card-border rounded-lg p-4 flex items-center justify-between mb-4">
+                <span className="text-sm text-muted">{selectedComps.size} comp(s) selected</span>
+                <div className="flex gap-2">
+                  <button onClick={() => handlePendingAction("approve")} className="px-3 py-1 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">Approve Selected</button>
+                  <button onClick={() => handlePendingAction("reject")} className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700">Reject Selected</button>
+                </div>
+              </div>
+            )}
+
+            {pendingComps.length > 0 && (
+              <div className="flex gap-2 mb-4">
+                <button onClick={() => handlePendingAction("bulk_approve")} className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 text-sm">Bulk Approve High Confidence</button>
+              </div>
+            )}
+
+            {pendingComps.length === 0 ? (
+              <div className="bg-card border border-card-border rounded-lg p-6 text-center">
+                <div className="text-muted text-sm">No pending comps to review</div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {pendingComps.map((comp) => {
+                  const fieldDot = (field: string) => {
+                    const fc = comp.fieldConfidence[field];
+                    if (!fc) return null;
+                    return <span className={`inline-block w-2 h-2 rounded-full ${fc.source === "explicit" ? "bg-emerald-500" : "bg-yellow-500"} ml-1`} title={`${fc.source}: ${(fc.confidence * 100).toFixed(0)}%`} />;
+                  };
+                  return (
+                    <div key={comp.id} className="bg-card border border-card-border rounded-lg p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-3">
+                          <input type="checkbox" checked={selectedComps.has(comp.id)} onChange={() => toggleCompSelection(comp.id)} className="mt-1" />
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-foreground">{comp.address}{fieldDot("address")}</span>
+                              <span className="text-xs px-2 py-1 bg-accent/20 text-accent rounded">{comp.type}</span>
+                              {comp.duplicateOfId && <span className="text-xs px-2 py-1 bg-red-500/20 text-red-400 rounded">DUPLICATE</span>}
+                            </div>
+                            <div className="text-sm text-muted space-y-1">
+                              {comp.tenant && <div>Tenant: {comp.tenant}{fieldDot("tenant")}</div>}
+                              {comp.seller && <div>Seller: {comp.seller}{fieldDot("seller")}</div>}
+                              {comp.salePrice && <div>Price: ${comp.salePrice.toLocaleString()}{fieldDot("salePrice")}</div>}
+                              {comp.netRentPSF && <div>Rent: ${comp.netRentPSF}/SF{fieldDot("netRentPSF")}</div>}
+                              {comp.areaSF && <div>Area: {comp.areaSF.toLocaleString()} SF{fieldDot("areaSF")}</div>}
+                            </div>
+                            <div className="text-xs text-muted">Source: {comp.sourceRef}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <div className={`text-sm font-medium ${getConfidenceColor(comp.confidence)}`}>{(comp.confidence * 100).toFixed(0)}% confidence</div>
+                            <div className="text-xs text-muted">{comp.missingFields.length} missing fields</div>
+                          </div>
+                          <div className="flex gap-1">
+                            <button onClick={() => toggleCompDetails(comp.id)} className="p-1 text-muted hover:text-foreground" title="Details">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </button>
+                            <button onClick={() => handlePendingAction("approve", [comp.id])} className="p-1 text-emerald-400 hover:text-emerald-300" title="Approve">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                            </button>
+                            <button onClick={() => handlePendingAction("reject", [comp.id])} className="p-1 text-red-400 hover:text-red-300" title="Reject">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {showDetails.has(comp.id) && (
+                        <div className="mt-4 pt-4 border-t border-card-border space-y-3">
+                          <div>
+                            <h4 className="text-sm font-medium text-foreground mb-2">Field Confidence</h4>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                              {Object.entries(comp.fieldConfidence).map(([field, conf]) => (
+                                <div key={field} className="flex items-center justify-between">
+                                  <span className="capitalize">{field.replace(/([A-Z])/g, " $1").trim()}:</span>
+                                  <span className={conf.source === "explicit" ? "text-emerald-400" : "text-yellow-400"}>{conf.source} ({(conf.confidence * 100).toFixed(0)}%)</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          {comp.missingFields.length > 0 && (
+                            <div>
+                              <h4 className="text-sm font-medium text-foreground mb-2">Missing Fields</h4>
+                              <div className="text-xs text-muted">{comp.missingFields.join(", ")}</div>
+                            </div>
+                          )}
+                          {comp.notes && (
+                            <div>
+                              <h4 className="text-sm font-medium text-foreground mb-2">Nova&apos;s Notes</h4>
+                              <div className="text-xs text-muted bg-muted/10 p-2 rounded">{comp.notes}</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

@@ -88,6 +88,17 @@ export async function GET(req: NextRequest) {
     SELECT COUNT(*) as cnt FROM document_drafts WHERE created_at >= ${yesterdayStart}
   `) as { cnt: number } | null;
 
+  // 8. Draft text feedback (unread — has text_feedback but not yet marked read)
+  const draftFeedback = db.all(sql`
+    SELECT d.id, d.title, d.document_type, d.text_feedback, d.updated_at, u.name as user_name
+    FROM document_drafts d
+    JOIN users u ON d.user_id = u.id
+    WHERE d.text_feedback IS NOT NULL
+      AND d.text_feedback != ''
+    ORDER BY d.updated_at DESC
+    LIMIT 10
+  `) as { id: number; title: string; document_type: string; text_feedback: string; updated_at: string; user_name: string }[];
+
   return NextResponse.json({
     generatedAt: now.toISOString(),
     activeUsers: activeUsers.map(u => u.user_name),
@@ -100,5 +111,6 @@ export async function GET(req: NextRequest) {
     newComps: newComps?.cnt || 0,
     newAnalyses: newAnalyses?.cnt || 0,
     newDrafts: newDrafts?.cnt || 0,
+    draftFeedback,
   });
 }

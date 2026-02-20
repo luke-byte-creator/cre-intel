@@ -8,10 +8,15 @@ interface Vacancy {
   address: string;
   availableSF: number | null;
   totalBuildingSF: number | null;
+  askingRent: number | null;
+  rentBasis: string | null;
+  occupancyCost: number | null;
   listingBrokerage: string | null;
   listingType: string | null;
   quarterRecorded: string;
   yearRecorded: number;
+  firstSeen: string | null;
+  lastSeen: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string | null;
@@ -38,7 +43,7 @@ function fmtSF(n: number | null): string {
   return n.toLocaleString() + " SF";
 }
 
-type SortKey = "address" | "availableSF" | "listingBrokerage" | "listingType" | "quarterRecorded";
+type SortKey = "address" | "availableSF" | "askingRent" | "listingBrokerage" | "listingType" | "quarterRecorded";
 
 export default function VacancyTab() {
   const [vacancies, setVacancies] = useState<Vacancy[]>([]);
@@ -69,7 +74,7 @@ export default function VacancyTab() {
   });
 
   const fetchData = useCallback(async () => {
-    const params = viewAll ? "" : `?quarter=${selQuarter}%20${selYear}&year=${selYear}`;
+    const params = viewAll ? "?viewAll=true" : `?quarter=${selQuarter}&year=${selYear}`;
     const res = await fetch(`/api/industrial/vacancies${params}`);
     const data = await res.json();
     setVacancies(data.vacancies || []);
@@ -249,9 +254,10 @@ export default function VacancyTab() {
               {([
                 { key: "address" as SortKey, label: "Address" },
                 { key: "availableSF" as SortKey, label: "Available SF", align: "right" as const },
+                { key: "askingRent" as SortKey, label: "Net Rent", align: "right" as const },
                 { key: "listingBrokerage" as SortKey, label: "Brokerage" },
                 { key: "listingType" as SortKey, label: "Type" },
-                { key: "quarterRecorded" as SortKey, label: "Quarter" },
+                { key: "quarterRecorded" as SortKey, label: "First Recorded" },
               ]).map(col => (
                 <th key={col.key} onClick={() => handleSort(col.key)}
                   className={`px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted whitespace-nowrap cursor-pointer hover:text-foreground select-none ${col.align === "right" ? "text-right" : "text-left"}`}>
@@ -266,7 +272,7 @@ export default function VacancyTab() {
           </thead>
           <tbody>
             {sorted.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-12 text-center text-muted">No vacancies recorded for this period</td></tr>
+              <tr><td colSpan={7} className="px-4 py-12 text-center text-muted">No vacancies recorded for this period</td></tr>
             ) : sorted.map((v, i) => (
               <>
                 <tr key={v.id} onClick={() => setExpanded(expanded === v.id ? null : v.id)}
@@ -276,6 +282,10 @@ export default function VacancyTab() {
                     {v.buildingId && <span className="ml-2 text-xs bg-accent/20 text-accent px-1.5 py-0.5 rounded">Matched</span>}
                   </td>
                   <td className="px-4 py-2.5 text-right font-mono">{fmtSF(v.availableSF)}</td>
+                  <td className="px-4 py-2.5 text-right font-mono">
+                    {v.askingRent ? `$${v.askingRent.toFixed(2)}` : "—"}
+                    {v.occupancyCost ? <div className="text-[10px] text-muted/60">+${v.occupancyCost.toFixed(2)} occ</div> : null}
+                  </td>
                   <td className="px-4 py-2.5 text-muted">{v.listingBrokerage || "—"}</td>
                   <td className="px-4 py-2.5 text-muted capitalize">{v.listingType || "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{v.quarterRecorded}</td>
@@ -288,7 +298,7 @@ export default function VacancyTab() {
                 </tr>
                 {expanded === v.id && (
                   <tr key={`${v.id}-detail`} className="bg-accent/[0.03]">
-                    <td colSpan={6} className="px-6 py-4">
+                    <td colSpan={7} className="px-6 py-4">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                         <div>
                           <p className="text-muted text-xs font-medium mb-0.5">Total Building SF</p>

@@ -9,8 +9,13 @@ import {
   getClientIp,
 } from "@/lib/security";
 import { requireAuth } from "@/lib/auth";
+import { checkKillSwitch } from "@/lib/killswitch";
 
 export async function GET(req: NextRequest) {
+  // Check if emergency shutdown is active
+  const killSwitchResponse = checkKillSwitch();
+  if (killSwitchResponse) return killSwitchResponse;
+
   const auth = await requireAuth(req);
   if (auth instanceof Response) return auth;
   const status = req.nextUrl.searchParams.get("status");
@@ -57,6 +62,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Check if emergency shutdown is active
+  const killSwitchResponse = checkKillSwitch();
+  if (killSwitchResponse) return killSwitchResponse;
+
   // Rate limiting
   const ip = getClientIp(req);
   if (!inquiryRateLimiter.check(ip)) {

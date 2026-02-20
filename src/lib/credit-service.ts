@@ -96,7 +96,7 @@ export function getLeaderboard(days = 7) {
       sql`${schema.creditLedger.reason} != 'daily_decay'`
     ))
     .groupBy(schema.creditLedger.userId)
-    .orderBy(sql`earned DESC`)
+    .orderBy(sql`3 DESC`)
     .limit(10)
     .all();
 }

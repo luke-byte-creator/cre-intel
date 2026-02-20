@@ -168,6 +168,7 @@ export const deals = sqliteTable("deals", {
   stageEnteredAt: text("stage_entered_at").notNull().$defaultFn(() => new Date().toISOString()),
   notes: text("notes"),
   dealEconomics: text("deal_economics"), // JSON blob: calculator inputs + results
+  sortOrder: integer("sort_order").default(0),
   inquiryId: integer("inquiry_id").references(() => inquiries.id),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
@@ -276,6 +277,100 @@ export const comps = sqliteTable("comps", {
   index("idx_comps_tenant").on(table.tenant),
 ]);
 
+// Pending Comps (email intake processing)
+export const pendingComps = sqliteTable("pending_comps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  // All comp fields (copied from comps table above)
+  type: text("type").notNull(), // "Sale" or "Lease"
+  propertyType: text("property_type"),
+  investmentType: text("investment_type"),
+  leaseType: text("lease_type"),
+  propertyName: text("property_name"),
+  address: text("address").notNull(),
+  unit: text("unit"),
+  city: text("city").default("Saskatoon"),
+  province: text("province").default("Saskatchewan"),
+  seller: text("seller"),
+  purchaser: text("purchaser"),
+  landlord: text("landlord"),
+  tenant: text("tenant"),
+  portfolio: text("portfolio"),
+  saleDate: text("sale_date"),
+  salePrice: real("sale_price"),
+  pricePSF: real("price_psf"),
+  pricePerAcre: real("price_per_acre"),
+  isRenewal: integer("is_renewal", { mode: "boolean" }),
+  leaseStart: text("lease_start"),
+  leaseExpiry: text("lease_expiry"),
+  termMonths: integer("term_months"),
+  netRentPSF: real("net_rent_psf"),
+  annualRent: real("annual_rent"),
+  rentSteps: text("rent_steps"),
+  areaSF: real("area_sf"),
+  officeSF: real("office_sf"),
+  ceilingHeight: real("ceiling_height"),
+  loadingDocks: integer("loading_docks"),
+  driveInDoors: integer("drive_in_doors"),
+  landAcres: real("land_acres"),
+  landSF: real("land_sf"),
+  yearBuilt: integer("year_built"),
+  zoning: text("zoning"),
+  noi: real("noi"),
+  capRate: real("cap_rate"),
+  stabilizedNOI: real("stabilized_noi"),
+  stabilizedCapRate: real("stabilized_cap_rate"),
+  vacancyRate: real("vacancy_rate"),
+  pricePerUnit: real("price_per_unit"),
+  opexRatio: real("opex_ratio"),
+  numUnits: integer("num_units"),
+  numBuildings: integer("num_buildings"),
+  numStories: integer("num_stories"),
+  constructionClass: text("construction_class"),
+  retailSalesPerAnnum: real("retail_sales_per_annum"),
+  retailSalesPSF: real("retail_sales_psf"),
+  operatingCost: real("operating_cost"),
+  improvementAllowance: text("improvement_allowance"),
+  freeRentPeriod: text("free_rent_period"),
+  fixturingPeriod: text("fixturing_period"),
+  comments: text("comments"),
+  source: text("source"),
+  rollNumber: text("roll_number"),
+  pptCode: integer("ppt_code"),
+  pptDescriptor: text("ppt_descriptor"),
+  armsLength: integer("arms_length", { mode: "boolean" }),
+  retailTenantId: integer("retail_tenant_id"),
+  propertyId: integer("property_id").references(() => properties.id),
+  sellerCompanyId: integer("seller_company_id").references(() => companies.id),
+  purchaserCompanyId: integer("purchaser_company_id").references(() => companies.id),
+  landlordCompanyId: integer("landlord_company_id").references(() => companies.id),
+  tenantCompanyId: integer("tenant_company_id").references(() => companies.id),
+  researchedUnavailable: integer("researched_unavailable").default(0),
+  researchedAt: text("researched_at"),
+  researchedBy: integer("researched_by"),
+  addressNormalized: text("address_normalized"),
+  cityNormalized: text("city_normalized"),
+  
+  // Email-specific fields
+  sourceType: text("source_type").notNull(), // "email" | "manual" | "import"
+  sourceRef: text("source_ref").notNull(), // One-liner email reference
+  status: text("status").notNull().default("pending"), // "pending" | "approved" | "rejected" | "duplicate"
+  duplicateOfId: integer("duplicate_of_id").references(() => comps.id),
+  confidence: real("confidence").notNull().default(0.5), // 0-1 overall confidence
+  fieldConfidence: text("field_confidence"), // JSON string (per-field confidence map)
+  missingFields: text("missing_fields"), // JSON string (array of field names Nova couldn't determine)
+  notes: text("notes"), // Nova's commentary
+  reviewedAt: text("reviewed_at"),
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_pending_comps_status").on(table.status),
+  index("idx_pending_comps_source_type").on(table.sourceType),
+  index("idx_pending_comps_confidence").on(table.confidence),
+  index("idx_pending_comps_address").on(table.address),
+  index("idx_pending_comps_duplicate_of_id").on(table.duplicateOfId),
+]);
+
 // Users (auth)
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -370,6 +465,7 @@ export const officeBuildings = sqliteTable("office_buildings", {
   comments: text("comments"),
   dataSource: text("data_source"),
   addressNormalized: text("address_normalized"),
+  taxAssessedSf: real("tax_assessed_sf"),
   updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_office_buildings_class").on(table.buildingClass),
@@ -387,12 +483,24 @@ export const officeUnits = sqliteTable("office_units", {
   isVacant: integer("is_vacant").default(0),
   isSublease: integer("is_sublease").default(0),
   listingAgent: text("listing_agent"),
+  askingRent: real("asking_rent"), // nullable - added for @office route
+  rentBasis: text("rent_basis"), // nullable - "net" | "gross" | "unconfirmed"
+  listingBrokerage: text("listing_brokerage"), // nullable
+  availableDate: text("available_date"), // nullable - YYYY-MM-DD format
+  source: text("source"), // nullable - "email" | "manual" | "scraper" 
+  sourceRef: text("source_ref"), // nullable - reference to source
+  lastSeen: text("last_seen"), // nullable - last update timestamp
+  occupancyCost: real("occupancy_cost"), // additional rent (occ costs + taxes) PSF
+  firstSeen: text("first_seen"), // when this unit was first scraped/added
+  status: text("status").default("active"), // "active" | "absorbed" | "demolished"
   notes: text("notes"),
   verifiedDate: text("verified_date"),
   updatedAt: text("updated_at").$defaultFn(() => new Date().toISOString()),
 }, (table) => [
   index("idx_office_units_building").on(table.buildingId),
   index("idx_office_units_tenant").on(table.tenantName),
+  index("idx_office_units_status").on(table.status),
+  index("idx_office_units_source").on(table.source),
 ]);
 
 // Multifamily Buildings
@@ -485,10 +593,16 @@ export const industrialVacancies = sqliteTable("industrial_vacancies", {
   totalBuildingSF: real("total_building_sf"),
   listingBrokerage: text("listing_brokerage"),
   listingType: text("listing_type"),
+  askingRent: real("asking_rent"),
+  rentBasis: text("rent_basis"),
+  occupancyCost: real("occupancy_cost"),
+  sourceUrl: text("source_url"),
   quarterRecorded: text("quarter_recorded").notNull(),
   yearRecorded: integer("year_recorded").notNull(),
   notes: text("notes"),
   addressNormalized: text("address_normalized"),
+  firstSeen: text("first_seen"),
+  lastSeen: text("last_seen"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at"),
 }, (table) => [
@@ -562,6 +676,7 @@ export const documentDrafts = sqliteTable("document_drafts", {
   finalDocPath: text("final_doc_path"),
   finalContent: text("final_content"),
   diffSummary: text("diff_summary"),
+  textFeedback: text("text_feedback"),
   uploadedAt: text("uploaded_at"),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
@@ -673,4 +788,271 @@ export const novaFeedback = sqliteTable("nova_feedback", {
   novaReply: text("nova_reply"),
   readByAdmin: integer("read_by_admin").default(0),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+// Underwriting Packages (email intake system)
+export const underwritingPackages = sqliteTable("underwriting_packages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  propertyAddress: text("property_address").notNull(),
+  propertyAddressNormalized: text("property_address_normalized").notNull(),
+  propertyId: integer("property_id").references(() => properties.id),
+  status: text("status").notNull().default("collecting"), // "collecting" | "ready" | "analyzed"
+  analysisResult: text("analysis_result"), // JSON — the full analysis output once run
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_underwriting_packages_address_normalized").on(table.propertyAddressNormalized),
+  index("idx_underwriting_packages_created_by").on(table.createdBy),
+]);
+
+// Underwriting Documents (lease documents in packages)  
+export const underwritingDocuments = sqliteTable("underwriting_documents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  packageId: integer("package_id").notNull().references(() => underwritingPackages.id),
+  fileName: text("file_name").notNull(),
+  filePath: text("file_path").notNull(), // saved attachment path
+  extractedData: text("extracted_data"), // JSON — tenant, suite, sf, rent, term, expiry, ti, opex, escalations, etc.
+  fieldConfidence: text("field_confidence"), // JSON — per-field confidence map: "high" | "medium" | "low"
+  extractionStatus: text("extraction_status").notNull().default("pending"), // "pending" | "success" | "partial" | "failed"
+  source: text("source").notNull().default("email"), // "email" | "upload"
+  sourceRef: text("source_ref"), // reference to source email
+  notes: text("notes"), // any notes about the document
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_underwriting_documents_package_id").on(table.packageId),
+]);
+
+// ===============================
+// SCRAPED DATA TABLES (Nova CRE Intelligence Platform)
+// ===============================
+
+// Suburban Office Listings (non-downtown office listings released from scraped data)
+export const suburbanOfficeListings = sqliteTable("suburban_office_listings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  address: text("address").notNull(),
+  addressNormalized: text("address_normalized"),
+  squareFeet: integer("square_feet"),
+  askingRent: real("asking_rent"),
+  askingPrice: real("asking_price"),
+  listingType: text("listing_type"),
+  broker: text("broker"),
+  brokerageFirm: text("brokerage_firm"),
+  source: text("source"),
+  sourceUrl: text("source_url"),
+  sourceListingId: integer("source_listing_id"),
+  suite: text("suite"),
+  rentBasis: text("rent_basis"),
+  occupancyCost: real("occupancy_cost"),
+  status: text("status").default("active"),
+  firstSeen: text("first_seen"),
+  lastSeen: text("last_seen"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_suburban_office_address").on(table.address),
+  index("idx_suburban_office_status").on(table.status),
+]);
+
+// Scraped Listings (brokerage listings from ICR, CBRE, Colliers, Cushman)
+export const scrapedListings = sqliteTable("scraped_listings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  source: text("source").notNull(), // "ICR", "CBRE", "Colliers", "Cushman"
+  sourceUrl: text("source_url").notNull(),
+  address: text("address").notNull(),
+  propertyType: text("property_type").notNull(), // "office", "industrial", "multi-family"
+  listingType: text("listing_type").notNull(), // "sale", "lease"
+  askingPrice: real("asking_price"),
+  askingRent: real("asking_rent"),
+  squareFeet: integer("square_feet"),
+  description: text("description"),
+  broker: text("broker"),
+  brokerageFirm: text("brokerage_firm"),
+  status: text("status").default("active"), // "active", "removed"
+  rawData: text("raw_data"), // JSON of all scraped fields
+  firstSeen: text("first_seen").notNull().$defaultFn(() => new Date().toISOString()),
+  lastSeen: text("last_seen").notNull().$defaultFn(() => new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  suite: text("suite"),
+  rentBasis: text("rent_basis"), // "psf_net", "psf_gross", "monthly_gross", "monthly_net"
+  propertyTypeFlag: text("property_type_flag"), // "mixed_retail_office", "mixed_industrial_office"
+  occupancyCost: real("occupancy_cost"), // additional rent (occ costs + taxes) PSF
+  dismissed: integer("dismissed").default(0),
+  releasedTo: text("released_to"), // 'office_units', 'suburban_office', 'industrial_vacancies', null
+  releasedAt: text("released_at"),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_scraped_listings_source").on(table.source),
+  index("idx_scraped_listings_property_type").on(table.propertyType),
+  index("idx_scraped_listings_listing_type").on(table.listingType),
+  index("idx_scraped_listings_address").on(table.address),
+  index("idx_scraped_listings_status").on(table.status),
+]);
+
+// Listing Changes (audit trail for auto-updates and flagged changes)
+export const listingChanges = sqliteTable("listing_changes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sourceTable: text("source_table").notNull(), // "office_units", "industrial_vacancies", "suburban_office_listings"
+  sourceRecordId: integer("source_record_id").notNull(),
+  scrapedListingId: integer("scraped_listing_id"),
+  changeType: text("change_type").notNull(), // "rate_change", "sf_change", "possibly_leased", "new_availability", "new_listing"
+  field: text("field"), // which field changed (null for possibly_leased)
+  oldValue: text("old_value"),
+  newValue: text("new_value"),
+  status: text("status").notNull().default("reviewed"), // "pending_review", "reviewed", "dismissed"
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  reviewedAt: text("reviewed_at"),
+  reviewedBy: integer("reviewed_by"),
+}, (table) => [
+  index("idx_listing_changes_status").on(table.status),
+  index("idx_listing_changes_type").on(table.changeType),
+  index("idx_listing_changes_source").on(table.sourceTable, table.sourceRecordId),
+]);
+
+// Scraped Permits (e-permitting data, separate from main permits table)
+export const scrapedPermits = sqliteTable("scraped_permits", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  source: text("source").notNull().default("saskatoon-epermitting"),
+  permitNumber: text("permit_number").notNull(),
+  permitDate: text("permit_date"),
+  address: text("address").notNull(),
+  owner: text("owner"),
+  permitValue: real("permit_value"),
+  description: text("description"),
+  permitStatus: text("permit_status"),
+  workType: text("work_type"), // "COMM-" commercial permits
+  rawData: text("raw_data"), // JSON of all scraped fields
+  firstSeen: text("first_seen").notNull().$defaultFn(() => new Date().toISOString()),
+  lastSeen: text("last_seen").notNull().$defaultFn(() => new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_scraped_permits_permit_number").on(table.permitNumber),
+  index("idx_scraped_permits_address").on(table.address),
+  index("idx_scraped_permits_permit_value").on(table.permitValue),
+  index("idx_scraped_permits_permit_date").on(table.permitDate),
+]);
+
+// Scraped Tenders (government tenders from Sasktenders)
+export const scrapedTenders = sqliteTable("scraped_tenders", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  source: text("source").notNull().default("sasktenders"),
+  sourceUrl: text("source_url").notNull(),
+  tenderName: text("tender_name").notNull(),
+  organization: text("organization").notNull(),
+  closingDate: text("closing_date"),
+  description: text("description"),
+  category: text("category"), // "lease", "real estate", "property"
+  status: text("status").default("active"), // "active", "closed", "removed"
+  rawData: text("raw_data"), // JSON of all scraped fields
+  firstSeen: text("first_seen").notNull().$defaultFn(() => new Date().toISOString()),
+  lastSeen: text("last_seen").notNull().$defaultFn(() => new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_scraped_tenders_organization").on(table.organization),
+  index("idx_scraped_tenders_closing_date").on(table.closingDate),
+  index("idx_scraped_tenders_category").on(table.category),
+  index("idx_scraped_tenders_status").on(table.status),
+]);
+
+// Scraped Assessments (property assessment data)
+export const scrapedAssessments = sqliteTable("scraped_assessments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  source: text("source").notNull().default("saskatoon-assessment"),
+  address: text("address").notNull(),
+  assessedValue: real("assessed_value"),
+  lotSize: real("lot_size"),
+  zoning: text("zoning"),
+  yearBuilt: integer("year_built"),
+  propertyType: text("property_type"),
+  rollNumber: text("roll_number"),
+  rawData: text("raw_data"), // JSON of all scraped fields
+  scrapedAt: text("scraped_at").notNull().$defaultFn(() => new Date().toISOString()),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_scraped_assessments_address").on(table.address),
+  index("idx_scraped_assessments_assessed_value").on(table.assessedValue),
+  index("idx_scraped_assessments_roll_number").on(table.rollNumber),
+]);
+
+// Scraper Runs (log of each scraper execution)
+export const scraperRuns = sqliteTable("scraper_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  source: text("source").notNull(), // "ICR", "CBRE", "saskatoon-epermitting", etc.
+  status: text("status").notNull(), // "running", "completed", "failed", "partial"
+  itemsFound: integer("items_found").default(0),
+  itemsProcessed: integer("items_processed").default(0),
+  itemsNew: integer("items_new").default(0),
+  itemsUpdated: integer("items_updated").default(0),
+  errors: text("errors"), // JSON array of error messages
+  duration: integer("duration_ms"),
+  metadata: text("metadata"), // JSON of run-specific data
+  startedAt: text("started_at").notNull().$defaultFn(() => new Date().toISOString()),
+  completedAt: text("completed_at"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_scraper_runs_source").on(table.source),
+  index("idx_scraper_runs_status").on(table.status),
+  index("idx_scraper_runs_started_at").on(table.startedAt),
+]);
+
+// City Assessments (from ArcGIS API)
+export const cityAssessments = sqliteTable("city_assessments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  objectId: integer("object_id").notNull().unique(),
+  siteId: integer("site_id"),
+  propertyId: integer("property_id"),
+  rollNumber: integer("roll_number"),
+  unit: text("unit"),
+  streetNumber: text("street_number"),
+  streetName: text("street_name"),
+  streetSuffix: text("street_suffix"),
+  streetPostDir: text("street_post_dir"),
+  fullAddress: text("full_address").notNull(),
+  zoningDesc: text("zoning_desc"),
+  assessmentYear: integer("assessment_year"),
+  assessedValue: real("assessed_value"),
+  adjustedSalesPrice: real("adjusted_sales_price"),
+  propertyUseCode: text("property_use_code"),
+  propertyUseGroup: text("property_use_group"),
+  neighbourhood: text("neighbourhood"),
+  ward: text("ward"),
+  cityUrl: text("city_url"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_city_assessments_object_id").on(table.objectId),
+  index("idx_city_assessments_full_address").on(table.fullAddress),
+  index("idx_city_assessments_property_use_group").on(table.propertyUseGroup),
+  index("idx_city_assessments_neighbourhood").on(table.neighbourhood),
+  index("idx_city_assessments_roll_number").on(table.rollNumber),
+]);
+
+// City Assessment Matches (linking city data to our properties)
+export const cityAssessmentMatches = sqliteTable("city_assessment_matches", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cityAssessmentId: integer("city_assessment_id").notNull().references(() => cityAssessments.id),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  matchMethod: text("match_method").notNull(), // 'exact', 'normalized', 'fuzzy'
+  confidence: real("confidence").notNull(),
+  status: text("status").notNull().default("pending"), // 'pending', 'confirmed', 'rejected'
+  mergedAt: text("merged_at"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_city_matches_city_assessment_id").on(table.cityAssessmentId),
+  index("idx_city_matches_property_id").on(table.propertyId),
+  index("idx_city_matches_status").on(table.status),
+]);
+
+// Muted Addresses (addresses to auto-dismiss on scrape)
+export const mutedAddresses = sqliteTable("muted_addresses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  address: text("address").notNull().unique(),
+  addressNormalized: text("address_normalized"),
+  reason: text("reason"),
+  mutedAt: text("muted_at").notNull().$defaultFn(() => new Date().toISOString()),
+  mutedBy: text("muted_by"),
 });

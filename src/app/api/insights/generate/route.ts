@@ -21,8 +21,11 @@ export async function POST(req: NextRequest) {
     .get();
 
   if (lastInsight) {
-    const hoursSinceLast = (Date.now() - new Date(lastInsight.generatedAt).getTime()) / (1000 * 60 * 60);
-    if (hoursSinceLast < 20) {
+    // Compare calendar dates in CST (America/Regina = UTC-6, no DST)
+    const now = new Date();
+    const todayCST = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const lastCST = new Date(new Date(lastInsight.generatedAt).getTime() - 6 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    if (todayCST === lastCST) {
       return NextResponse.json({ skipped: true, reason: "Already generated today" });
     }
   }

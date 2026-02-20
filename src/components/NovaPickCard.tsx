@@ -83,8 +83,8 @@ export default function NovaPickCard({ insight: initialInsight, showNav = true }
   }, [initialInsight, loading]);
 
   useEffect(() => {
-    if (insight?.feedbackRating) setVoted(true);
-  }, [insight]);
+    if (insight?.feedbackRating != null && !showComment) setVoted(true);
+  }, [insight, showComment]);
 
   const trackView = () => {
     fetch("/api/activity", {
@@ -98,8 +98,6 @@ export default function NovaPickCard({ insight: initialInsight, showNav = true }
     if (!insight || voted) return;
     if (rating === -1) {
       setShowComment(true);
-      // Pre-set the rating so we can submit with comment
-      setInsight({ ...insight, feedbackRating: rating });
       return;
     }
     try {
@@ -270,10 +268,10 @@ export default function NovaPickCard({ insight: initialInsight, showNav = true }
             <div className="flex flex-col gap-1">
               <button
                 onClick={submitCommentFeedback}
-                disabled={submittingComment || !comment.trim()}
+                disabled={submittingComment}
                 className="text-sm px-3 py-1.5 bg-red-500/15 text-red-400 rounded-lg hover:bg-red-500/25 transition disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                {submittingComment ? "..." : "Submit"}
+                {submittingComment ? "..." : comment.trim() ? "Submit" : "Skip"}
               </button>
               <button
                 onClick={() => { setShowComment(false); setInsight({ ...insight, feedbackRating: null }); }}

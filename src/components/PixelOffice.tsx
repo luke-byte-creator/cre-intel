@@ -147,7 +147,7 @@ export default function PixelOffice({ leaderboard = [] }: { leaderboard?: Leader
         .catch(() => {});
     };
     poll();
-    const iv = setInterval(poll, 5 * 60 * 1000); // 5 minutes (demo mode — revert to 30 after launch)
+    const iv = setInterval(poll, 30 * 60 * 1000); // 30 minutes
     return () => clearInterval(iv);
   }, []);
 

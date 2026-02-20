@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import Link from "next/link";
 import type { AuditEntry, ConflictEntry, TenantRow } from "@/lib/extraction/extract-documents";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -420,7 +421,27 @@ function ConflictsSection({
 // Main Page Component
 // ═══════════════════════════════════════════════════════════════════════════
 
+type PageTab = "analysis" | "packages";
+
+interface UWPackage {
+  id: number;
+  propertyAddress: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  totalDocs: number;
+  successfulDocs: number;
+  partialDocs: number;
+  failedDocs: number;
+}
+
 export default function UnderwritePage() {
+  // --- Page-level tab ---
+  const [pageTab, setPageTab] = useState<PageTab>("analysis");
+  const [packages, setPackages] = useState<UWPackage[]>([]);
+  const [packagesLoading, setPackagesLoading] = useState(false);
+  const [packagesLoaded, setPackagesLoaded] = useState(false);
+
   // --- Shared state ---
   const [view, setView] = useState<ViewState>("upload");
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
@@ -694,8 +715,131 @@ export default function UnderwritePage() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // PACKAGES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  useEffect(() => {
+    if (pageTab === "packages" && !packagesLoaded) {
+      setPackagesLoading(true);
+      fetch("/api/underwriting/packages")
+        .then(r => r.json())
+        .then(d => { setPackages(d); setPackagesLoaded(true); })
+        .catch(() => {})
+        .finally(() => setPackagesLoading(false));
+    }
+  }, [pageTab, packagesLoaded]);
+
+  const PAGE_TAB_BAR = (
+    <div className="flex gap-1 bg-card border border-card-border rounded-lg p-1 w-fit mb-6">
+      <button
+        onClick={() => setPageTab("analysis")}
+        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+          pageTab === "analysis" ? "bg-accent text-white shadow-sm" : "text-muted hover:text-foreground"
+        }`}
+      >
+        Analysis
+      </button>
+      <button
+        onClick={() => setPageTab("packages")}
+        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+          pageTab === "packages" ? "bg-accent text-white shadow-sm" : "text-muted hover:text-foreground"
+        }`}
+      >
+        Packages
+      </button>
+    </div>
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════════════════
+
+  // ─── PACKAGES TAB ───────────────────────────────────────────────────────
+
+  if (pageTab === "packages") {
+    const PKG_STATUS_COLORS: Record<string, string> = {
+      collecting: "bg-blue-500/15 text-blue-400",
+      ready: "bg-yellow-500/15 text-yellow-400",
+      analyzed: "bg-emerald-500/15 text-emerald-400",
+    };
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Underwriter</h1>
+          <p className="text-sm text-muted mt-1">AI-Powered Financial Modeling</p>
+        </div>
+        {PAGE_TAB_BAR}
+
+        {packagesLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="text-muted">Loading packages...</div>
+          </div>
+        ) : packages.length === 0 ? (
+          <div className="bg-card border border-card-border rounded-xl p-8 text-center">
+            <h3 className="text-lg font-semibold text-foreground mb-2">No packages yet</h3>
+            <p className="text-muted mb-4">
+              Send lease documents via email with <code className="bg-white/[0.04] px-1.5 py-0.5 rounded text-accent">@underwrite 123 Main St</code> to get started
+            </p>
+            <div className="text-sm text-muted/60">
+              The system will extract lease terms and build rent rolls for underwriting analysis
+            </div>
+          </div>
+        ) : (
+          <div className="bg-card border border-card-border rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-white/[0.02] border-b border-card-border">
+                  <tr>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Property Address</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Status</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Documents</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Created</th>
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {packages.map((pkg, index) => {
+                    const parts = [];
+                    if (pkg.successfulDocs > 0) parts.push(`${pkg.successfulDocs} ✓`);
+                    if (pkg.partialDocs > 0) parts.push(`${pkg.partialDocs} ⚠`);
+                    if (pkg.failedDocs > 0) parts.push(`${pkg.failedDocs} ✗`);
+                    return (
+                      <tr key={pkg.id} className={`hover:bg-white/[0.02] transition-colors ${index !== packages.length - 1 ? "border-b border-card-border" : ""}`}>
+                        <td className="py-3 px-4">
+                          <Link href={`/underwriting/packages/${pkg.id}`} className="text-foreground hover:text-accent transition font-medium">
+                            {pkg.propertyAddress}
+                          </Link>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${PKG_STATUS_COLORS[pkg.status] || "bg-gray-500/15 text-gray-400"}`}>
+                            {pkg.status.charAt(0).toUpperCase() + pkg.status.slice(1)}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          {pkg.totalDocs === 0 ? (
+                            <span className="text-xs text-muted">No documents</span>
+                          ) : (
+                            <span className="text-xs text-muted">{pkg.totalDocs} docs: {parts.join(", ")}</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-muted">
+                          {new Date(pkg.createdAt).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-muted">
+                          {new Date(pkg.updatedAt).toLocaleDateString("en-CA", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // ─── UPLOAD VIEW ────────────────────────────────────────────────────────
 
@@ -706,6 +850,7 @@ export default function UnderwritePage() {
           <h1 className="text-2xl font-bold text-foreground">Underwriter</h1>
           <p className="text-sm text-muted mt-1">AI-Powered Financial Modeling</p>
         </div>
+        {PAGE_TAB_BAR}
 
         {/* Mode Toggle */}
         <div className="flex gap-1 bg-card border border-card-border rounded-lg p-1 w-fit">

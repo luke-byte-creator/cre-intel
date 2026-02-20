@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     ? `${comp.address}${comp.city ? ", " + comp.city : ""} — Sale${comp.saleDate ? " on " + comp.saleDate : ""}${comp.salePrice ? " for $" + Number(comp.salePrice).toLocaleString() : ""}${comp.seller ? " (vendor: " + comp.seller + ")" : ""}${comp.purchaser ? " (purchaser: " + comp.purchaser + ")" : ""}`
     : `${comp.address}${comp.city ? ", " + comp.city : ""} — Lease${comp.tenant ? " to " + comp.tenant : ""}${comp.landlord ? " from " + comp.landlord : ""}${comp.leaseStart ? " starting " + comp.leaseStart : ""}`;
 
-  const prompt = `You are a commercial real estate broker writing a professional but friendly email requesting additional details about a transaction. Keep it concise — 3-4 sentences max in the body. Be specific about what information you're looking for.
+  const prompt = `You are a commercial real estate broker writing a quick email requesting additional details about a transaction. Keep it to 3-4 sentences max. Be direct and specific about what you need. Casual-professional tone — no corporate fluff, no "I hope this finds you well." Write like you're emailing a colleague you've worked with before.
 
 TRANSACTION:
 ${compSummary}

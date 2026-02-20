@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { fmtCurrency } from "@/lib/format";
+import SuburbanOfficeTab from "./SuburbanOfficeTab";
 
 interface Unit {
   id: number;
@@ -15,6 +16,9 @@ interface Unit {
   listingAgent: string | null;
   notes: string | null;
   verifiedDate: string | null;
+  askingRent: number | null;
+  rentBasis: string | null;
+  occupancyCost: number | null;
 }
 
 interface Building {
@@ -68,6 +72,7 @@ export default function OfficePage() {
   const [unitForm, setUnitForm] = useState<Partial<Unit>>({});
   const [addingUnit, setAddingUnit] = useState(false);
   const [newUnit, setNewUnit] = useState<Partial<Unit>>({ floor: "", tenantName: "", areaSF: null, isVacant: 1 });
+  const [activeTab, setActiveTab] = useState<"downtown" | "suburban">("downtown");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -153,8 +158,33 @@ export default function OfficePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Office Inventory</h1>
-        <p className="text-zinc-400 text-sm mt-1">Downtown Saskatoon CBD office buildings</p>
+        <p className="text-zinc-400 text-sm mt-1">Saskatoon office buildings &amp; listings</p>
       </div>
+
+      {/* Tab Navigation */}
+      <div className="border-b border-zinc-700">
+        <nav className="-mb-px flex space-x-8">
+          {[
+            { key: "downtown" as const, label: "Downtown CBD" },
+            { key: "suburban" as const, label: "Suburban Office" },
+          ].map((tab) => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+              className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === tab.key
+                  ? "border-blue-500 text-blue-400"
+                  : "border-transparent text-zinc-400 hover:text-white hover:border-zinc-500"
+              }`}>
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {activeTab === "suburban" ? (
+        <SuburbanOfficeTab />
+      ) : (
+      <>
+
 
       {/* Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -261,6 +291,8 @@ export default function OfficePage() {
             ))}
           </div>
         </>
+      )}
+      </>
       )}
     </div>
   );
@@ -401,6 +433,12 @@ function StackingPlan({ units, loading, editingUnit, unitForm, setUnitForm, onSt
                     {u.isSublease ? <span className="ml-2 text-xs text-amber-400">(sublease)</span> : null}
                   </span>
                   <span className="text-zinc-400 font-mono text-xs w-20 text-right">{u.areaSF?.toLocaleString() || "—"} SF</span>
+                  {u.isVacant && u.askingRent ? (
+                    <span className="text-zinc-400 font-mono text-xs w-28 text-right">
+                      ${u.askingRent.toFixed(2)} net
+                      {u.occupancyCost ? <span className="text-zinc-500"> +${u.occupancyCost.toFixed(2)}</span> : null}
+                    </span>
+                  ) : <span className="w-28" />}
                   {u.verifiedDate && <span className="text-zinc-600 text-xs">✓ {u.verifiedDate}</span>}
                   <button onClick={(e) => { e.stopPropagation(); onStartEdit(u); }}
                     className="text-zinc-500 hover:text-white transition-colors p-1">

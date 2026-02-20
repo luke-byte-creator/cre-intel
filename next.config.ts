@@ -2,10 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // Allow large file uploads (leases, trade records, underwriting docs)
-  // Default is 1MB — raised to 50MB for demo day (consider tuning down later)
+  // Default is 1MB — raised for document uploads
   experimental: {
     serverActions: {
-      bodySizeLimit: "50mb",
+      bodySizeLimit: "20mb",
     },
   },
 };

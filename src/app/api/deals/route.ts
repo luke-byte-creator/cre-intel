@@ -11,9 +11,35 @@ export async function GET(req: NextRequest) {
   results.sort((a, b) => {
     const so = (stageOrder[a.stage] ?? 99) - (stageOrder[b.stage] ?? 99);
     if (so !== 0) return so;
-    return (a.stageEnteredAt ?? "").localeCompare(b.stageEnteredAt ?? "");
+    return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
   });
   return NextResponse.json(results);
+}
+
+export async function PUT(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof Response) return auth;
+
+  let body: { items: { id: number; sortOrder: number; stage?: string }[] };
+  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid body" }, { status: 400 }); }
+
+  if (!body.items || !Array.isArray(body.items)) {
+    return NextResponse.json({ error: "items array required" }, { status: 400 });
+  }
+
+  const now = new Date().toISOString();
+  for (const item of body.items) {
+    const updates: Record<string, unknown> = { sortOrder: item.sortOrder, updatedAt: now };
+    if (item.stage) {
+      updates.stage = item.stage;
+      updates.stageEnteredAt = now;
+    }
+    await db.update(schema.deals)
+      .set(updates)
+      .where(eq(schema.deals.id, item.id));
+  }
+
+  return NextResponse.json({ success: true });
 }
 
 export async function POST(req: NextRequest) {

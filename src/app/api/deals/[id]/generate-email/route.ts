@@ -85,7 +85,7 @@ IMPORTANT: Only reference deal terms/numbers that are provided above. NEVER inve
 The agent's instructions for this email:
 ${body.instructions}
 
-Write a professional, warm but concise email. Use a conversational business tone. Don't be overly formal or stiff. Sign off with just "Best," (the agent will add their own name).
+Write a concise, natural email. Keep the tone casual-professional — like texting a business contact you've worked with before. No corporate jargon, no "I hope this email finds you well," no "please do not hesitate." Just get to the point in a friendly way. Sign off with just "Best," (the agent will add their own name).
 
 Return your response in this exact format:
 SUBJECT: <subject line>

@@ -60,15 +60,56 @@ export async function getUser(request: NextRequest): Promise<User | null> {
 
   try {
     const db = new Database(DB_PATH);
+    
+    // Check if session exists and is not expired
+    const session = db.prepare(`
+      SELECT s.user_id, s.expires_at, s.last_activity
+      FROM auth_sessions s
+      WHERE s.id = ?
+    `).get(token) as { user_id: number; expires_at: string; last_activity?: string } | undefined;
+
+    if (!session) {
+      db.close();
+      return null;
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(session.expires_at);
+    
+    // Check if session is expired
+    if (expiresAt <= now) {
+      // Clean up expired session
+      db.prepare("DELETE FROM auth_sessions WHERE id = ?").run(token);
+      db.close();
+      return null;
+    }
+
+    // Check if session is inactive for more than 24 hours
+    const lastActivity = session.last_activity ? new Date(session.last_activity) : new Date(session.expires_at);
+    const inactiveThreshold = 24 * 60 * 60 * 1000; // 24 hours
+    
+    if (now.getTime() - lastActivity.getTime() > inactiveThreshold) {
+      // Session inactive too long, clean up
+      db.prepare("DELETE FROM auth_sessions WHERE id = ?").run(token);
+      db.close();
+      return null;
+    }
+
+    // Update last activity timestamp (sliding window)
+    const newLastActivity = now.toISOString();
+    db.prepare("UPDATE auth_sessions SET last_activity = ? WHERE id = ?").run(newLastActivity, token);
+
+    // Get user information
     const row = db.prepare(`
       SELECT u.id, u.email, u.name, u.role, u.credit_balance as creditBalance, u.is_exempt as isExempt
-      FROM auth_sessions s
-      JOIN users u ON u.id = s.user_id
-      WHERE s.id = ? AND s.expires_at > datetime('now')
-    `).get(token) as User | undefined;
+      FROM users u
+      WHERE u.id = ?
+    `).get(session.user_id) as User | undefined;
+    
     db.close();
     return row || null;
-  } catch {
+  } catch (error) {
+    console.error("Error in getUser:", error);
     return null;
   }
 }

@@ -225,6 +225,8 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestionFilter, setSuggestionFilter] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
+  const [todoDragId, setTodoDragId] = useState<number | null>(null);
+  const [todoDragOverIdx, setTodoDragOverIdx] = useState<number | null>(null);
 
   const incompleteTodos = todos.filter(t => !t.completed);
   const completedTodos = todos.filter(t => t.completed);
@@ -275,13 +277,18 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
     if (!newText.trim()) return;
 
     // @new creates a new deal as prospect
+    // Supports: @new "Title" "Description" OR @new Title - description OR @new Title, description
     const newDealMatch = newText.match(/^@new\s+(.+)/i);
     if (newDealMatch) {
       const raw = newDealMatch[1].trim();
-      // Split on first comma or dash to get name vs details
-      const sepMatch = raw.match(/^([^,\-]+)[,\-]\s*(.+)$/);
-      const dealName = sepMatch ? sepMatch[1].trim() : raw;
-      const details = sepMatch ? sepMatch[2].trim() : "";
+      // Try quoted format first: @new "Title" "Description"
+      const quotedMatch = raw.match(/^"([^"]+)"\s+"([^"]+)"$/);
+      // Also support: @new "Title" description (second part unquoted)
+      const halfQuotedMatch = !quotedMatch && raw.match(/^"([^"]+)"\s+(.+)$/);
+      // Fallback: split on first comma or dash
+      const sepMatch = !quotedMatch && !halfQuotedMatch && raw.match(/^([^,\-]+)[,\-]\s*(.+)$/);
+      const dealName = quotedMatch ? quotedMatch[1].trim() : halfQuotedMatch ? halfQuotedMatch[1].trim() : sepMatch ? sepMatch[1].trim() : raw;
+      const details = quotedMatch ? quotedMatch[2].trim() : halfQuotedMatch ? halfQuotedMatch[2].trim() : sepMatch ? sepMatch[2].trim() : "";
       const notes = details || null;
       await fetch("/api/deals", {
         method: "POST",
@@ -311,37 +318,44 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
   };
 
   const handleToggle = async (todo: Todo) => {
-    await fetch(`/api/pipeline/todos/${todo.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ completed: todo.completed ? 0 : 1 }),
-    });
-    fetchTodos();
-    fetchDeals();
+    try {
+      const res = await fetch(`/api/pipeline/todos/${todo.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: todo.completed ? 0 : 1 }),
+      });
+      if (res.ok) {
+        fetchTodos();
+        fetchDeals();
+      }
+    } catch { /* keep state as-is */ }
   };
 
   const handleDelete = async (id: number) => {
-    await fetch(`/api/pipeline/todos/${id}`, { method: "DELETE" });
-    fetchTodos();
+    try {
+      const res = await fetch(`/api/pipeline/todos/${id}`, { method: "DELETE" });
+      if (res.ok) fetchTodos();
+    } catch { /* keep state as-is */ }
   };
 
-  const handleMove = async (todo: Todo, direction: "up" | "down") => {
-    const list = incompleteTodos;
-    const idx = list.findIndex(t => t.id === todo.id);
-    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= list.length) return;
-
-    const items = [
-      { id: list[idx].id, sortOrder: list[swapIdx].sortOrder },
-      { id: list[swapIdx].id, sortOrder: list[idx].sortOrder },
-    ];
-
-    await fetch("/api/pipeline/todos", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items }),
-    });
-    fetchTodos();
+  const handleTodoDrop = async (dropIdx: number) => {
+    if (todoDragId === null) return;
+    const list = [...incompleteTodos];
+    const dragIdx = list.findIndex(t => t.id === todoDragId);
+    if (dragIdx === -1 || dragIdx === dropIdx) { setTodoDragId(null); setTodoDragOverIdx(null); return; }
+    const [moved] = list.splice(dragIdx, 1);
+    list.splice(dropIdx > dragIdx ? dropIdx - 1 : dropIdx, 0, moved);
+    const items = list.map((t, i) => ({ id: t.id, sortOrder: i }));
+    setTodoDragId(null);
+    setTodoDragOverIdx(null);
+    try {
+      await fetch("/api/pipeline/todos", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      fetchTodos();
+    } catch { /* keep state */ }
   };
 
   // Render text with @mention highlighted
@@ -379,7 +393,7 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
               if (e.key === "Enter" && !showSuggestions) handleAdd();
               if (e.key === "Escape") setShowSuggestions(false);
             }}
-            placeholder="Add a task… (@ to link deal, @new to create deal)"
+            placeholder='Add a task… (@ to link deal, @new "Name" "Details" to create deal)'
             className="w-full bg-background border border-card-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted"
           />
           {showSuggestions && filteredDeals.length > 0 && (
@@ -403,19 +417,38 @@ function TodoSection({ deals, todos, fetchTodos, fetchDeals }: { deals: Deal[]; 
       </div>
 
       {/* Incomplete todos */}
-      <div className="space-y-1">
+      <div className="space-y-0">
         {incompleteTodos.map((todo, idx) => (
-          <div key={todo.id} className="flex items-center gap-2 group py-1.5 px-2 rounded-lg hover:bg-zinc-800/50 transition">
-            <button
-              onClick={() => handleToggle(todo)}
-              className="w-5 h-5 rounded-full border-2 border-zinc-500 hover:border-emerald-400 flex items-center justify-center flex-shrink-0 transition-colors"
-            />
-            {renderTodoText(todo)}
-            <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
-              <button onClick={() => handleMove(todo, "up")} disabled={idx === 0} className="text-zinc-500 hover:text-foreground disabled:opacity-20 text-xs px-1">▲</button>
-              <button onClick={() => handleMove(todo, "down")} disabled={idx === incompleteTodos.length - 1} className="text-zinc-500 hover:text-foreground disabled:opacity-20 text-xs px-1">▼</button>
-              <button onClick={() => handleDelete(todo.id)} className="text-zinc-500 hover:text-red-400 text-xs px-1">✕</button>
+          <div key={todo.id}>
+            {todoDragOverIdx === idx && todoDragId !== null && (
+              <div className="h-0.5 bg-accent rounded-full mx-2 shadow-[0_0_6px_rgba(var(--accent-rgb,59,130,246),0.5)]" />
+            )}
+            <div
+              draggable
+              onDragStart={e => { setTodoDragId(todo.id); e.dataTransfer.effectAllowed = "move"; }}
+              onDragEnd={() => { setTodoDragId(null); setTodoDragOverIdx(null); }}
+              onDragOver={e => {
+                e.preventDefault();
+                const rect = e.currentTarget.getBoundingClientRect();
+                const midY = rect.top + rect.height / 2;
+                setTodoDragOverIdx(e.clientY < midY ? idx : idx + 1);
+              }}
+              onDrop={e => { e.preventDefault(); if (todoDragOverIdx !== null) handleTodoDrop(todoDragOverIdx); }}
+              className={`flex items-center gap-2 group py-1.5 px-2 rounded-lg hover:bg-zinc-800/50 transition cursor-grab active:cursor-grabbing ${todoDragId === todo.id ? "opacity-40" : ""}`}
+            >
+              <span className="text-zinc-600 group-hover:text-zinc-400 text-xs select-none flex-shrink-0 cursor-grab" style={{ letterSpacing: "1px" }}>⋮⋮</span>
+              <button
+                onClick={() => handleToggle(todo)}
+                className="w-5 h-5 rounded-full border-2 border-zinc-500 hover:border-emerald-400 flex items-center justify-center flex-shrink-0 transition-colors"
+              />
+              {renderTodoText(todo)}
+              <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                <button onClick={() => handleDelete(todo.id)} className="text-zinc-500 hover:text-red-400 text-xs px-1">✕</button>
+              </div>
             </div>
+            {todoDragOverIdx === idx + 1 && idx === incompleteTodos.length - 1 && todoDragId !== null && (
+              <div className="h-0.5 bg-accent rounded-full mx-2 shadow-[0_0_6px_rgba(var(--accent-rgb,59,130,246),0.5)]" />
+            )}
           </div>
         ))}
       </div>
@@ -595,6 +628,9 @@ export default function PipelinePage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [newComment, setNewComment] = useState("");
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const [dealDragId, setDealDragId] = useState<number | null>(null);
+  const [dealDragOverStage, setDealDragOverStage] = useState<string | null>(null);
+  const [dealDragOverIdx, setDealDragOverIdx] = useState<number | null>(null);
   const [form, setForm] = useState({ tenantName: "", propertyAddress: "", stage: "prospect", initialNote: "" });
   const [economicsDealId, setEconomicsDealId] = useState<number | null>(null);
 
@@ -605,17 +641,55 @@ export default function PipelinePage() {
   }, []);
 
   const fetchTodos = useCallback(async () => {
-    const res = await fetch("/api/pipeline/todos");
-    setTodos(await res.json());
+    try {
+      const res = await fetch("/api/pipeline/todos");
+      if (!res.ok) return; // Don't overwrite state on error
+      const data = await res.json();
+      if (Array.isArray(data)) setTodos(data); // Only set if valid array
+    } catch {
+      // Network error — keep existing todos in state
+    }
   }, []);
 
   useEffect(() => { fetchDeals(); fetchTodos(); }, [fetchDeals, fetchTodos]);
 
-  const handleDrop = async (stage: string, dealId: number) => {
+  const handleDealDrop = async (targetStage: string, dropIdx: number | null) => {
+    if (dealDragId === null) return;
+    const draggedDeal = deals.find(d => d.id === dealDragId);
+    if (!draggedDeal) return;
+
     setDragOverStage(null);
-    track("edit", "pipeline", { action: "stage_change", dealId, newStage: stage });
-    await fetch(`/api/deals/${dealId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage }) });
-    fetchDeals();
+    setDealDragId(null);
+    setDealDragOverStage(null);
+    setDealDragOverIdx(null);
+
+    const stageDeals = deals.filter(d => d.stage === targetStage);
+    const sameStage = draggedDeal.stage === targetStage;
+
+    if (sameStage && dropIdx !== null) {
+      // Reorder within stage
+      const list = [...stageDeals];
+      const dragIdx = list.findIndex(d => d.id === dealDragId);
+      if (dragIdx === -1 || dragIdx === dropIdx) return;
+      const [moved] = list.splice(dragIdx, 1);
+      list.splice(dropIdx > dragIdx ? dropIdx - 1 : dropIdx, 0, moved);
+      const items = list.map((d, i) => ({ id: d.id, sortOrder: i }));
+      try {
+        await fetch("/api/deals", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
+        fetchDeals();
+      } catch { /* keep state */ }
+    } else if (!sameStage) {
+      // Move to different stage
+      track("edit", "pipeline", { action: "stage_change", dealId: dealDragId, newStage: targetStage });
+      const insertIdx = dropIdx ?? stageDeals.length;
+      const newList = [...stageDeals];
+      newList.splice(insertIdx, 0, draggedDeal);
+      const items = newList.map((d, i) => ({ id: d.id, sortOrder: i, ...(d.id === dealDragId ? { stage: targetStage } : {}) }));
+      try {
+        await fetch("/api/deals", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
+        fetchDeals();
+      } catch { /* keep state */ }
+    }
   };
 
   const handleCreate = async () => {
@@ -672,13 +746,17 @@ export default function PipelinePage() {
   };
 
   const handleToggleTodo = async (todo: Todo) => {
-    await fetch(`/api/pipeline/todos/${todo.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ completed: todo.completed ? 0 : 1 }),
-    });
-    fetchTodos();
-    fetchDeals();
+    try {
+      const res = await fetch(`/api/pipeline/todos/${todo.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: todo.completed ? 0 : 1 }),
+      });
+      if (res.ok) {
+        fetchTodos();
+        fetchDeals();
+      }
+    } catch { /* keep state as-is */ }
   };
 
   const activeCount = deals.filter(d => d.stage !== "closed").length;
@@ -753,10 +831,10 @@ export default function PipelinePage() {
           return (
             <div
               key={stage}
-              className={`min-w-[300px] flex-1 rounded-xl border transition-colors ${dragOverStage === stage ? "border-accent bg-accent/5" : "border-card-border bg-card/50"}`}
-              onDragOver={e => { e.preventDefault(); setDragOverStage(stage); }}
-              onDragLeave={() => setDragOverStage(null)}
-              onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData("dealId"); if (id) handleDrop(stage, Number(id)); }}
+              className={`min-w-[300px] flex-1 rounded-xl border transition-colors ${dragOverStage === stage && dealDragOverIdx === null ? "border-accent bg-accent/5" : "border-card-border bg-card/50"}`}
+              onDragOver={e => { e.preventDefault(); setDragOverStage(stage); /* only set stage highlight if not over a card */ }}
+              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { setDragOverStage(null); setDealDragOverStage(null); setDealDragOverIdx(null); } }}
+              onDrop={e => { e.preventDefault(); handleDealDrop(stage, dealDragOverIdx); }}
             >
               <div className={`${STAGE_COLORS[stage]} rounded-t-xl px-4 py-2.5`}>
                 <div className="flex items-center justify-between">
@@ -764,19 +842,39 @@ export default function PipelinePage() {
                   <span className="text-xs text-white/70 bg-white/20 rounded-full px-2 py-0.5">{stageDeals.length}</span>
                 </div>
               </div>
-              <div className="p-2 space-y-2 min-h-[100px]">
-                {stageDeals.map(deal => {
+              <div className="p-2 space-y-0 min-h-[100px]">
+                {stageDeals.length === 0 && dealDragId !== null && (
+                  <div
+                    className="h-16 flex items-center justify-center"
+                    onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDealDragOverStage(stage); setDealDragOverIdx(0); }}
+                  >
+                    <div className={`h-0.5 w-full bg-accent rounded-full shadow-[0_0_6px_rgba(var(--accent-rgb,59,130,246),0.5)] ${dealDragOverStage === stage && dealDragOverIdx === 0 ? "opacity-100" : "opacity-0"}`} />
+                  </div>
+                )}
+                {stageDeals.map((deal, idx) => {
                   const comments = parseComments(deal.notes);
                   const lastComment = comments.length > 0 ? comments[comments.length - 1] : null;
                   const days = daysSince(deal.updatedAt);
                   const isExpanded = expandedId === deal.id;
 
                   return (
+                    <div key={deal.id} className="py-1">
+                      {dealDragOverStage === stage && dealDragOverIdx === idx && dealDragId !== null && dealDragId !== deal.id && (
+                        <div className="h-0.5 bg-accent rounded-full mx-1 mb-1 shadow-[0_0_6px_rgba(var(--accent-rgb,59,130,246),0.5)]" />
+                      )}
                     <div
-                      key={deal.id}
                       draggable
-                      onDragStart={e => { e.dataTransfer.setData("dealId", String(deal.id)); e.dataTransfer.effectAllowed = "move"; }}
-                      className="bg-card border border-card-border rounded-lg cursor-grab active:cursor-grabbing hover:border-accent/40 hover:shadow-lg hover:shadow-accent/5 transition-all"
+                      onDragStart={e => { setDealDragId(deal.id); e.dataTransfer.setData("dealId", String(deal.id)); e.dataTransfer.effectAllowed = "move"; }}
+                      onDragEnd={() => { setDealDragId(null); setDealDragOverStage(null); setDealDragOverIdx(null); setDragOverStage(null); }}
+                      onDragOver={e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const midY = rect.top + rect.height / 2;
+                        setDealDragOverStage(stage);
+                        setDealDragOverIdx(e.clientY < midY ? idx : idx + 1);
+                      }}
+                      className={`bg-card border border-card-border rounded-lg cursor-grab active:cursor-grabbing hover:border-accent/40 hover:shadow-lg hover:shadow-accent/5 transition-all ${dealDragId === deal.id ? "opacity-40" : ""}`}
                     >
                       <div className="p-3" onClick={() => { setExpandedId(isExpanded ? null : deal.id); setNewComment(""); }}>
                         <p className="text-sm font-semibold text-foreground">{deal.tenantName}</p>
@@ -848,6 +946,10 @@ export default function PipelinePage() {
                             <button onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${deal.tenantName}"? This cannot be undone.`)) handleDelete(deal.id); }} className="px-2 py-1 text-[10px] text-red-400 hover:text-red-300">Delete Deal</button>
                           </div>
                         </div>
+                      )}
+                    </div>
+                      {dealDragOverStage === stage && dealDragOverIdx === idx + 1 && idx === stageDeals.length - 1 && dealDragId !== null && dealDragId !== deal.id && (
+                        <div className="h-0.5 bg-accent rounded-full mx-1 mt-1 shadow-[0_0_6px_rgba(var(--accent-rgb,59,130,246),0.5)]" />
                       )}
                     </div>
                   );

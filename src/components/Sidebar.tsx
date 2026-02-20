@@ -35,6 +35,8 @@ const prospectingExtra = [
   )},
 ];
 
+const betaBadge = <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium">BETA</span>;
+
 const intelNav = [
   { href: "/transactions", label: "Transactions", icon: (
     <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -46,9 +48,31 @@ const intelNav = [
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" />
     </svg>
   )},
+  { href: "/city-data", label: "City Assessments", icon: (
+    <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m7.5 0h2.25" />
+    </svg>
+  )},
+  { 
+    href: "/scraped-data", 
+    label: "Scraped Data", 
+    badge: betaBadge,
+    icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 8.25h15m-16.5 7.5h15m-1.6-13.5h2.4c1.061 0 1.92.859 1.92 1.92v4.8c0 1.061-.859 1.92-1.92 1.92H2.88c-1.061 0-1.92-.859-1.92-1.92V6.72c0-1.061.859-1.92 1.92-1.92h2.4m8.64 0V2.88C13.92 1.819 13.061.96 12 .96S10.08 1.819 10.08 2.88V4.8m1.92 7.68h0m0 0h0" />
+      </svg>
+    )
+  },
 ];
 
-const betaBadge = <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium">BETA</span>;
+const NotificationBadge = ({ count }: { count: number }) => {
+  if (count === 0) return null;
+  return (
+    <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-accent text-white font-medium">
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+};
 
 const toolsNav = [
   { href: "/underwrite", label: "Underwriter", badge: betaBadge, icon: (
@@ -66,11 +90,17 @@ const toolsNav = [
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
     </svg>
   )},
-  { href: "/drafts", label: "Document Drafter", badge: betaBadge, icon: (
-    <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-    </svg>
-  )},
+  { 
+    href: "/drafts", 
+    label: "My Drafts", 
+    badge: betaBadge, 
+    needsNotificationCount: 'emailDrafts',
+    icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+      </svg>
+    )
+  },
 ];
 
 const inventoryNav = [
@@ -105,6 +135,7 @@ export default function Sidebar() {
   const [accessLevel, setAccessLevel] = useState<string | null>(null);
   const [showLedger, setShowLedger] = useState(false);
   const [ledger, setLedger] = useState<any[]>([]);
+  const [notificationCounts, setNotificationCounts] = useState({ emailDrafts: 0, pendingComps: 0, totalNotifications: 0 });
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => {
@@ -120,6 +151,30 @@ export default function Sidebar() {
         setAccessLevel(d.user.accessLevel ?? null);
       }
     }).catch(() => {});
+
+    // Fetch notification counts
+    fetch("/api/notifications/counts").then(r => {
+      if (r.ok) return r.json();
+    }).then(d => {
+      if (d) {
+        setNotificationCounts(d);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Poll for notification updates every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetch("/api/notifications/counts").then(r => {
+        if (r.ok) return r.json();
+      }).then(d => {
+        if (d) {
+          setNotificationCounts(d);
+        }
+      }).catch(() => {});
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, []);
 
   async function handleSignOut() {
@@ -215,6 +270,9 @@ export default function Sidebar() {
             <div className="space-y-0.5">
               {[...inventoryNav, ...intelNav].map((item) => {
                 const active = isActive(item.href);
+                const typedItem = item as any; // For TypeScript compatibility
+                const notificationCount = typedItem.needsNotificationCount ? 
+                  notificationCounts[typedItem.needsNotificationCount as keyof typeof notificationCounts] : 0;
                 return (
                   <Link key={item.href} href={item.href} onClick={() => setOpen(false)}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
@@ -222,7 +280,9 @@ export default function Sidebar() {
                     }`}
                   >
                     <span className={active ? "text-accent" : "text-muted"}>{item.icon}</span>
-                    {item.label}
+                    <span className="flex-1">{item.label}</span>
+                    {notificationCount > 0 && <NotificationBadge count={notificationCount} />}
+                    {typedItem.badge}
                   </Link>
                 );
               })}
@@ -235,6 +295,9 @@ export default function Sidebar() {
             <div className="space-y-0.5">
               {toolsNav.map((item) => {
                 const active = isActive(item.href);
+                const typedItem = item as any; // For TypeScript compatibility
+                const notificationCount = typedItem.needsNotificationCount ? 
+                  notificationCounts[typedItem.needsNotificationCount as keyof typeof notificationCounts] : 0;
                 return (
                   <Link key={item.href} href={item.href} onClick={() => setOpen(false)}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
@@ -242,8 +305,9 @@ export default function Sidebar() {
                     }`}
                   >
                     <span className={active ? "text-accent" : "text-muted"}>{item.icon}</span>
-                    {item.label}
-                    {(item as any).badge}
+                    <span className="flex-1">{item.label}</span>
+                    {notificationCount > 0 && <NotificationBadge count={notificationCount} />}
+                    {typedItem.badge}
                   </Link>
                 );
               })}

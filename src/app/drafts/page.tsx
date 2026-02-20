@@ -16,6 +16,7 @@ interface Draft {
   finalDocPath: string | null;
   finalContent: string | null;
   diffSummary: string | null;
+  textFeedback: string | null;
   uploadedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -89,6 +90,10 @@ export default function DraftsPage() {
   const [uploadingFeedback, setUploadingFeedback] = useState(false);
   const [feedbackResult, setFeedbackResult] = useState<string | null>(null);
   const [markingAsIs, setMarkingAsIs] = useState(false);
+
+  // Text feedback
+  const [textFeedbackMap, setTextFeedbackMap] = useState<Record<number, string>>({});
+  const [submittingFeedback, setSubmittingFeedback] = useState<number | null>(null);
 
   // Preset suggestion
   const [presetSuggestion, setPresetSuggestion] = useState<any>(null);
@@ -210,6 +215,26 @@ export default function DraftsPage() {
     fetchPresets();
   };
 
+  const handleSubmitTextFeedback = async (draftId: number) => {
+    const text = textFeedbackMap[draftId]?.trim();
+    if (!text) return;
+    setSubmittingFeedback(draftId);
+    try {
+      const res = await fetch(`/api/drafts/${draftId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ textFeedback: text }),
+      });
+      if (res.ok) {
+        track("feedback", "drafts", { draftId, type: "text" });
+        setTextFeedbackMap(prev => ({ ...prev, [draftId]: "" }));
+        fetchDrafts();
+      }
+    } finally {
+      setSubmittingFeedback(null);
+    }
+  };
+
   const handleDownload = (draftId: number, title: string) => {
     track("download", "drafts", { title });
     window.open(`/api/drafts/${draftId}/download`, "_blank");
@@ -315,6 +340,36 @@ export default function DraftsPage() {
                         className="px-3 py-2 text-red-400 hover:text-red-300 text-sm ml-auto">
                         Delete
                       </button>
+                    </div>
+
+                    {/* Text feedback */}
+                    <div className="border-t border-card-border pt-3">
+                      {draft.textFeedback ? (
+                        <div className="bg-zinc-800/50 rounded-lg p-3">
+                          <p className="text-[10px] text-muted font-medium mb-1">Your feedback:</p>
+                          <p className="text-xs text-foreground">{draft.textFeedback}</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-xs text-muted mb-2">What could be improved?</p>
+                          <div className="flex gap-2">
+                            <textarea
+                              value={textFeedbackMap[draft.id] || ""}
+                              onChange={e => setTextFeedbackMap(prev => ({ ...prev, [draft.id]: e.target.value }))}
+                              placeholder="e.g. Rent schedule formatting was off, landlord name missed in one spot…"
+                              rows={2}
+                              className="flex-1 bg-background border border-card-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted resize-y"
+                            />
+                            <button
+                              disabled={!textFeedbackMap[draft.id]?.trim() || submittingFeedback === draft.id}
+                              onClick={() => handleSubmitTextFeedback(draft.id)}
+                              className="px-4 py-2 bg-zinc-700 text-white rounded-lg text-sm font-medium hover:bg-zinc-600 disabled:opacity-40 transition self-end whitespace-nowrap"
+                            >
+                              {submittingFeedback === draft.id ? "Sending…" : "Submit"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Upload final for feedback */}
@@ -503,6 +558,27 @@ export default function DraftsPage() {
                         className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/80 disabled:opacity-40 transition whitespace-nowrap"
                       >
                         {uploadingFeedback ? "Analyzing…" : "Upload Final"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Text feedback */}
+                  <div>
+                    <p className="text-xs text-muted mb-2">What could be improved?</p>
+                    <div className="flex gap-2">
+                      <textarea
+                        value={textFeedbackMap[generatedDraft.id] || ""}
+                        onChange={e => setTextFeedbackMap(prev => ({ ...prev, [generatedDraft.id]: e.target.value }))}
+                        placeholder="e.g. Rent formatting was off, missed a date change…"
+                        rows={2}
+                        className="flex-1 bg-background border border-card-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted resize-y"
+                      />
+                      <button
+                        disabled={!textFeedbackMap[generatedDraft.id]?.trim() || submittingFeedback === generatedDraft.id}
+                        onClick={() => handleSubmitTextFeedback(generatedDraft.id)}
+                        className="px-4 py-2 bg-zinc-700 text-white rounded-lg text-sm font-medium hover:bg-zinc-600 disabled:opacity-40 transition self-end whitespace-nowrap"
+                      >
+                        {submittingFeedback === generatedDraft.id ? "Sending…" : "Submit"}
                       </button>
                     </div>
                   </div>

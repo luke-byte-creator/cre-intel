@@ -5,7 +5,7 @@ import { requireAuth } from "@/lib/auth";
 import fs from "fs";
 import path from "path";
 import { extractTextFromFile } from "@/lib/extract-text";
-import { applyChangesToDocx, applyChangesToText, type DocumentChange } from "@/lib/docx-edit";
+import { applyChangesToDocx, applyChangesToText, extractDocxXmlText, type DocumentChange } from "@/lib/docx-edit";
 
 function getGatewayConfig() {
   const configPath = path.join(process.env.HOME || "", ".openclaw", "openclaw.json");
@@ -90,7 +90,13 @@ export async function POST(req: NextRequest) {
       const bytes = new Uint8Array(await referenceDoc.arrayBuffer());
       fs.writeFileSync(referenceDocPath, bytes);
 
-      fullDocText = await extractTextFromFile(referenceDocPath, referenceDoc.type);
+      if (isDocx) {
+        // For .docx: extract text directly from XML so the AI sees exactly
+        // what the find-replace engine will search against (paragraph breaks, tabs, etc.)
+        fullDocText = await extractDocxXmlText(referenceDocPath);
+      } else {
+        fullDocText = await extractTextFromFile(referenceDocPath, referenceDoc.type);
+      }
     } else if (presetId) {
       const preset = await db.select().from(schema.documentPresets)
         .where(eq(schema.documentPresets.id, presetId)).limit(1);
@@ -141,35 +147,41 @@ export async function POST(req: NextRequest) {
 
 Your job: Analyze the instructions and produce a JSON array of STRUCTURED change operations.
 
+IMPORTANT: The document text you receive is extracted directly from the document's internal structure. The text is EXACTLY what the find-replace engine will search against. When you write "find" or "old" values, you MUST copy text EXACTLY as it appears in the document — character for character, including line breaks, spacing, and punctuation.
+
 CHANGE TYPES:
 
-1. **replace_all** — For names, entities, or terms that appear MULTIPLE TIMES throughout the document. This does a GLOBAL find-replace on every single occurrence.
-   { "type": "replace_all", "old": "exact name/term as it appears", "new": "replacement" }
+1. **replace_all** — For names, entities, or terms that appear MULTIPLE TIMES throughout the document. Global find-replace on every occurrence.
+   { "type": "replace_all", "old": "exact text as it appears", "new": "replacement" }
    USE THIS for: landlord names, tenant names, company names, property addresses, any term the user wants changed everywhere.
-   IMPORTANT: Check for ALL variations of the name (e.g., "Forster Harvard Developments", "FORSTER HARVARD DEVELOPMENTS", "Forster Harvard"). Create a separate replace_all for each variation.
-   ALSO USE THIS for simple term swaps like duration changes (e.g., "Ninety (90) day" → "Six (6) month", "ninety (90) calendar days" → "six (6) months"). If a term appears in multiple places, replace_all catches them all.
+   IMPORTANT: Check for ALL variations (e.g., "Forster Harvard Developments", "Forster Harvard"). Create a separate replace_all for each variation found in the document.
 
-2. **replace_value** — For changing a SPECIFIC value (dollar amount, percentage, date, duration) at a PARTICULAR location in the document.
-   { "type": "replace_value", "context": "20-30 words surrounding the value to locate it", "old": "exact old value", "new": "new value" }
-   USE THIS for: rent amounts, TI allowances, dates, percentages, durations.
-   IMPORTANT: When changing rent tables with multiple related values (monthly, yearly, PSF), create a separate replace_value for EACH number that needs to change. Recalculate monthly/yearly amounts based on the square footage in the document.
+2. **replace_value** — For changing a SPECIFIC value at a PARTICULAR location.
+   { "type": "replace_value", "context": "20-40 chars surrounding the value, copied verbatim from document", "old": "exact old value", "new": "new value" }
+   USE THIS for: dollar amounts, percentages, dates, durations, square footages.
+   CRITICAL: The "context" and "old" must be copied EXACTLY from the document text above. Do not paraphrase or reformat.
+   For rent schedules/tables: create a SEPARATE replace_value for EACH individual dollar amount, date, or number that needs to change. Include enough unique context to locate each one precisely.
 
-3. **replace_section** — For modifying a larger block of text (a clause, a paragraph, a sentence).
-   { "type": "replace_section", "find": "the existing text to replace (copy verbatim from document)", "replace": "the new text" }
-   USE THIS for: rewriting clauses, changing fixturing periods (e.g., "ninety (90) day period" → "Six (6) month period"), modifying terms.
-   IMPORTANT: Copy the "find" text EXACTLY from the document — character for character.
+3. **replace_section** — For modifying a block of text (a clause, paragraph, or sentence).
+   { "type": "replace_section", "find": "text to replace — COPIED VERBATIM", "replace": "new text" }
+   CRITICAL: The "find" text must be copied CHARACTER FOR CHARACTER from the document text above, including any line breaks (\\n). If you can't copy it exactly, use replace_value on individual values within the section instead.
+   PREFER using multiple replace_value operations over one big replace_section when possible — they are more reliable.
+   Keep find text SHORT — just enough to be unique. Long multi-paragraph finds are fragile.
 
-4. **add_after** — For ADDING entirely new content that doesn't exist in the document.
-   { "type": "add_after", "anchor": "text immediately before where new content should go", "content": "new content to insert" }
-   USE THIS for: new clauses, new sections, additional terms.
+4. **add_after** — For ADDING entirely new content.
+   { "type": "add_after", "anchor": "text immediately before insertion point, copied verbatim", "content": "new content" }
 
-CRITICAL RULES:
-- Be THOROUGH. If the user says "change the landlord name", you must catch EVERY variation in the document.
-- For replace_all: look at the document carefully and identify every form of the name (with/without "Inc.", ALL CAPS version, possessive form, etc.)
-- For financial changes: always recalculate dependent values (if rent changes, update monthly and yearly amounts too).
-- For durations: find ALL mentions — the clause itself AND any references to it elsewhere in the document.
-- Return ONLY a valid JSON array. No other text.
-- If you're unsure about a change, include it — better to attempt and miss than to skip it.`,
+STRATEGY RULES:
+- PREFER replace_all for anything that appears multiple times (names, addresses, terms).
+- PREFER replace_value for individual numbers/dates/amounts. It's the most reliable operation.
+- AVOID large replace_section blocks. If you need to change a rent table, use individual replace_value for each amount.
+- For landlord's work / build-out clauses: use replace_value or short replace_section for each specific item, not one giant section replacement.
+- For rent escalations: if the document has a rent schedule with dates and amounts, use replace_value on EACH date and EACH dollar amount individually.
+- Be THOROUGH. Recalculate dependent values (monthly rent = annual / 12, annual = PSF × SF, etc.).
+- FORMATTING: When your replacement text needs line breaks, use \\n characters. The system will create proper paragraph breaks.
+- For rent schedules: if each rent period is on a separate line/row, use SEPARATE replace_value for each line. Do NOT try to replace the entire table as one block.
+- For landlord's work / build-out sections: if each item (HVAC, Electrical, Floor) is a separate section heading + description, use a SEPARATE replace_section for each one with SHORT find text (just the specific sentence to change).
+- Return ONLY a valid JSON array. No markdown, no explanation.`,
         },
         {
           role: "user",
@@ -181,17 +193,36 @@ ${dealContext}
 REQUESTED CHANGES:
 ${instructions}`,
         },
-      ]);
+      ], 16000);
 
       // Parse
       let changes: DocumentChange[] = [];
       try {
+        if (!changesResponse || changesResponse.trim().length === 0) {
+          console.error("[drafts/generate] AI returned empty response");
+          return NextResponse.json({ error: "AI returned an empty response. Please try again." }, { status: 500 });
+        }
         const jsonMatch = changesResponse.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
+        if (!jsonMatch) {
+          console.error("[drafts/generate] No JSON array found in AI response:", changesResponse.slice(0, 1000));
+          // Try parsing as a JSON object with a changes key
+          try {
+            const obj = JSON.parse(changesResponse.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim());
+            if (Array.isArray(obj.changes)) {
+              changes = obj.changes;
+            } else if (Array.isArray(obj)) {
+              changes = obj;
+            } else {
+              return NextResponse.json({ error: "AI returned invalid changes format. Please try again." }, { status: 500 });
+            }
+          } catch {
+            return NextResponse.json({ error: "AI returned invalid changes format. Please try again." }, { status: 500 });
+          }
+        } else {
           changes = JSON.parse(jsonMatch[0]);
         }
       } catch (e) {
-        console.error("[drafts/generate] Failed to parse changes:", changesResponse.slice(0, 500));
+        console.error("[drafts/generate] Failed to parse changes:", changesResponse.slice(0, 1000));
         return NextResponse.json({ error: "AI returned invalid changes format. Please try again." }, { status: 500 });
       }
 

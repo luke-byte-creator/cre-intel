@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireFullAccess } from "@/lib/auth";
 import { awardCredits } from "@/lib/credit-service";
 import { db, schema } from "@/db";
-import { eq, and, like } from "drizzle-orm";
+import { eq, and, like, gte, lte, or, isNull } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 
@@ -36,20 +36,39 @@ export async function GET(req: NextRequest) {
   if (auth instanceof Response) return auth;
 
   const { searchParams } = new URL(req.url);
-  const quarter = searchParams.get("quarter");
-  const year = searchParams.get("year");
+  const quarter = searchParams.get("quarter"); // e.g. "Q1"
+  const year = searchParams.get("year"); // e.g. "2026"
   const brokerage = searchParams.get("brokerage");
+  const viewAll = searchParams.get("viewAll") === "true";
 
-  let query = db.select().from(schema.industrialVacancies);
-  const conditions = [];
+  // Calculate quarter date boundaries
+  function getQuarterDates(q: string, y: number): { start: string; end: string } {
+    const qNum = parseInt(q.replace("Q", ""));
+    const startMonth = (qNum - 1) * 3; // 0-indexed
+    const start = new Date(y, startMonth, 1).toISOString();
+    const end = new Date(y, startMonth + 3, 0, 23, 59, 59).toISOString();
+    return { start, end };
+  }
 
-  if (quarter) conditions.push(eq(schema.industrialVacancies.quarterRecorded, quarter));
-  if (year) conditions.push(eq(schema.industrialVacancies.yearRecorded, Number(year)));
-  if (brokerage) conditions.push(eq(schema.industrialVacancies.listingBrokerage, brokerage));
+  let rows;
+  if (viewAll) {
+    rows = db.select().from(schema.industrialVacancies).all();
+  } else if (quarter && year) {
+    const { start, end } = getQuarterDates(quarter, Number(year));
+    // A listing is "in this quarter" if: first_seen <= quarter end AND last_seen >= quarter start
+    // For records without first_seen/last_seen, fall back to created_at
+    rows = db.select().from(schema.industrialVacancies).all().filter(r => {
+      const firstSeen = r.firstSeen || r.createdAt;
+      const lastSeen = r.lastSeen || r.createdAt;
+      return firstSeen <= end && lastSeen >= start;
+    });
+  } else {
+    rows = db.select().from(schema.industrialVacancies).all();
+  }
 
-  const rows = conditions.length > 0
-    ? query.where(and(...conditions)).all()
-    : query.all();
+  if (brokerage) {
+    rows = rows.filter(r => r.listingBrokerage === brokerage);
+  }
 
   const totalAvailableSF = rows.reduce((sum, r) => sum + (r.availableSF || 0), 0);
   const totalInventorySF = getInventoryTotalSF();

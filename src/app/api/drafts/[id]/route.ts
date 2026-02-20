@@ -30,6 +30,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.generatedContent !== undefined) updates.generatedContent = body.generatedContent;
   if (body.instructions !== undefined) updates.instructions = body.instructions;
   if (body.status !== undefined) updates.status = body.status;
+  if (body.textFeedback !== undefined) updates.textFeedback = body.textFeedback;
 
   // Handle "used as-is" feedback
   if (body.status === "used_as_is") {
