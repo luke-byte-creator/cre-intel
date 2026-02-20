@@ -41,7 +41,7 @@ async function main() {
     FROM isc_parcels ip
     WHERE ip.parcel_number != ''
     AND ip.id NOT IN (SELECT isc_parcel_id FROM isc_ownership)
-    AND ip.id IN (SELECT isc_parcel_id FROM isc_parcel_matches)
+    AND ip.id IN (SELECT isc_parcel_id FROM isc_parcel_matches WHERE confidence >= 0.7)
     ORDER BY ip.id LIMIT ?
   `).all(maxLookups) as any[];
 
