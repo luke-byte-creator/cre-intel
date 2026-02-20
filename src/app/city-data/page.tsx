@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 
-type Tab = "overview" | "records" | "matches" | "unmatched-city" | "unmatched-ours";
+type Tab = "overview" | "records" | "matches" | "unmatched-city" | "unmatched-ours" | "match-review" | "skipped";
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return "—";
@@ -138,6 +138,8 @@ export default function CityDataPage() {
     { key: "matches", label: "Matches" },
     { key: "unmatched-city", label: "Unmatched City" },
     { key: "unmatched-ours", label: "Unmatched Ours" },
+    { key: "match-review", label: "🔗 Match Review" },
+    { key: "skipped", label: "Skipped" },
   ];
 
   const Pagination = ({ total, perPage = 50 }: { total: number; perPage?: number }) => {
@@ -400,6 +402,240 @@ export default function CityDataPage() {
             </table>
           </div>
           <Pagination total={unmatchedOursTotal} />
+        </div>
+      )}
+
+      {tab === "match-review" && <MatchReviewTab />}
+      {tab === "skipped" && <SkippedTab />}
+    </div>
+  );
+}
+
+function MatchReviewTab() {
+  const [candidates, setCandidates] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [customSearch, setCustomSearch] = useState<{ [propId: number]: string }>({});
+  const [customResults, setCustomResults] = useState<{ [propId: number]: any[] }>({});
+  const [matched, setMatched] = useState<Set<number>>(new Set());
+  const perPage = 10;
+
+  const fetchCandidates = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), limit: String(perPage) });
+    if (searchQuery) params.set('search', searchQuery);
+    const res = await fetch(`/api/city-assessments/match-candidates?${params}`);
+    const json = await res.json();
+    setCandidates(json.data);
+    setTotal(json.total);
+    setLoading(false);
+  }, [page, searchQuery]);
+
+  useEffect(() => { fetchCandidates(); }, [fetchCandidates]);
+
+  const handleMatch = async (propertyId: number, cityAssessmentId: number) => {
+    await fetch('/api/city-assessments/match-candidates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ propertyId, cityAssessmentId }),
+    });
+    setMatched(prev => new Set([...prev, propertyId]));
+  };
+
+  const handleSkip = async (propertyId: number) => {
+    await fetch('/api/city-assessments/match-candidates/skip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ propertyId }),
+    });
+    setMatched(prev => new Set([...prev, propertyId]));
+  };
+
+  const handleCustomSearch = async (propertyId: number) => {
+    const q = customSearch[propertyId];
+    if (!q || q.length < 2) return;
+    const res = await fetch(`/api/city-assessments/search?q=${encodeURIComponent(q)}`);
+    const json = await res.json();
+    setCustomResults(prev => ({ ...prev, [propertyId]: json.data }));
+  };
+
+  const pages = Math.ceil(total / perPage);
+
+  return (
+    <div>
+      <div className="flex items-center gap-4 mb-4">
+        <div className="text-sm text-white/50">{fmtNum(total)} unmatched Saskatoon properties</div>
+        <input
+          type="text" placeholder="Filter by address..."
+          value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
+          className="px-3 py-1.5 rounded bg-white/5 border border-white/10 text-sm w-64"
+        />
+      </div>
+
+      {loading ? (
+        <div className="text-white/50 text-sm py-8 text-center">Loading...</div>
+      ) : (
+        <div className="space-y-4">
+          {candidates.map(({ property: p, candidates: cands }) => (
+            <div key={p.id} className={`bg-white/5 rounded-lg p-4 border border-white/10 ${matched.has(p.id) ? 'opacity-30' : ''}`}>
+              {/* Property header */}
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="font-medium text-base">{p.address || '(no address)'}</div>
+                  <div className="text-xs text-white/40 mt-0.5">
+                    ID: {p.id} · Type: {p.property_type || '—'} · City: {p.city || '—'}
+                  </div>
+                </div>
+                <button onClick={() => handleSkip(p.id)} disabled={matched.has(p.id)}
+                  className="px-3 py-1 rounded bg-white/5 hover:bg-red-900/30 text-xs text-white/50 hover:text-red-400 disabled:opacity-30">
+                  Skip ✕
+                </button>
+              </div>
+
+              {/* Candidate suggestions */}
+              {cands.length > 0 ? (
+                <div className="space-y-1">
+                  <div className="text-xs text-white/40 mb-1">Suggested matches:</div>
+                  {cands.map((c: any) => (
+                    <div key={c.id} className="flex items-center justify-between bg-white/[0.03] rounded px-3 py-2 hover:bg-white/[0.06]">
+                      <div className="flex-1">
+                        <span className="text-sm font-medium">{c.full_address}</span>
+                        <span className="text-xs text-white/40 ml-3">
+                          {c.property_use_group} · {c.zoning_desc} · {c.neighbourhood} · {fmt(c.assessed_value)}
+                        </span>
+                      </div>
+                      <button onClick={() => handleMatch(p.id, c.id)} disabled={matched.has(p.id)}
+                        className="px-3 py-1 rounded bg-green-700/50 hover:bg-green-600 text-xs font-medium ml-2 disabled:opacity-30">
+                        Match ✓
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-white/30 italic">No suggestions found</div>
+              )}
+
+              {/* Custom search */}
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="text" placeholder="Search city records..."
+                  value={customSearch[p.id] || ''}
+                  onChange={e => setCustomSearch(prev => ({ ...prev, [p.id]: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && handleCustomSearch(p.id)}
+                  className="px-2 py-1 rounded bg-white/5 border border-white/10 text-xs w-48"
+                />
+                <button onClick={() => handleCustomSearch(p.id)}
+                  className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-xs">🔍</button>
+              </div>
+              {customResults[p.id] && customResults[p.id].length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <div className="text-xs text-white/40">Search results:</div>
+                  {customResults[p.id].map((c: any) => (
+                    <div key={c.id} className="flex items-center justify-between bg-blue-900/10 rounded px-3 py-2 hover:bg-blue-900/20">
+                      <div className="flex-1">
+                        <span className="text-sm font-medium">{c.full_address}</span>
+                        <span className="text-xs text-white/40 ml-3">
+                          {c.property_use_group} · {c.zoning_desc} · {c.neighbourhood} · {fmt(c.assessed_value)}
+                        </span>
+                      </div>
+                      <button onClick={() => handleMatch(p.id, c.id)} disabled={matched.has(p.id)}
+                        className="px-3 py-1 rounded bg-green-700/50 hover:bg-green-600 text-xs font-medium ml-2 disabled:opacity-30">
+                        Match ✓
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {pages > 1 && (
+        <div className="flex items-center gap-2 mt-4">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            className="px-3 py-1 rounded bg-white/5 hover:bg-white/10 disabled:opacity-30 text-sm">← Prev</button>
+          <span className="text-sm text-white/50">Page {page} of {pages}</span>
+          <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page === pages}
+            className="px-3 py-1 rounded bg-white/5 hover:bg-white/10 disabled:opacity-30 text-sm">Next →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SkippedTab() {
+  const [items, setItems] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+
+  const fetchSkipped = useCallback(async () => {
+    setLoading(true);
+    const res = await fetch(`/api/city-assessments/matches/skipped?page=${page}&limit=50`);
+    const json = await res.json();
+    setItems(json.data);
+    setTotal(json.total);
+    setLoading(false);
+  }, [page]);
+
+  useEffect(() => { fetchSkipped(); }, [fetchSkipped]);
+
+  const handleRestore = async (matchId: number) => {
+    await fetch('/api/city-assessments/matches/skipped', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId }),
+    });
+    fetchSkipped();
+  };
+
+  const pages = Math.ceil(total / 50);
+
+  return (
+    <div>
+      <div className="text-sm text-white/50 mb-3">{fmtNum(total)} skipped properties — restore to send back to Match Review</div>
+      {loading ? (
+        <div className="text-white/50 text-sm py-8 text-center">Loading...</div>
+      ) : items.length === 0 ? (
+        <div className="text-white/30 text-sm py-8 text-center">No skipped properties</div>
+      ) : (
+        <div className="bg-white/5 rounded-lg overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-white/10 text-white/50 text-xs">
+              <th className="text-left p-2">Address</th>
+              <th className="text-left p-2">Type</th>
+              <th className="text-left p-2">City</th>
+              <th className="text-right p-2">Action</th>
+            </tr></thead>
+            <tbody>
+              {items.map((r: any) => (
+                <tr key={r.match_id} className="border-b border-white/5 hover:bg-white/5">
+                  <td className="p-2">{r.address}</td>
+                  <td className="p-2 text-xs">{r.property_type}</td>
+                  <td className="p-2 text-xs">{r.city}</td>
+                  <td className="p-2 text-right">
+                    <button onClick={() => handleRestore(r.match_id)}
+                      className="px-3 py-1 rounded bg-blue-700/50 hover:bg-blue-600 text-xs font-medium">
+                      Restore ↩
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {pages > 1 && (
+        <div className="flex items-center gap-2 mt-4">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            className="px-3 py-1 rounded bg-white/5 hover:bg-white/10 disabled:opacity-30 text-sm">← Prev</button>
+          <span className="text-sm text-white/50">Page {page} of {pages}</span>
+          <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page === pages}
+            className="px-3 py-1 rounded bg-white/5 hover:bg-white/10 disabled:opacity-30 text-sm">Next →</button>
         </div>
       )}
     </div>

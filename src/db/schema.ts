@@ -59,6 +59,7 @@ export const properties = sqliteTable("properties", {
   province: text("province"),
   addressNormalized: text("address_normalized"),
   cityNormalized: text("city_normalized"),
+  cityAssessmentId: integer("city_assessment_id").references(() => cityAssessments.id),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
@@ -1045,6 +1046,110 @@ export const cityAssessmentMatches = sqliteTable("city_assessment_matches", {
   index("idx_city_matches_city_assessment_id").on(table.cityAssessmentId),
   index("idx_city_matches_property_id").on(table.propertyId),
   index("idx_city_matches_status").on(table.status),
+]);
+
+// City Parcels (from ArcGIS OD/LandSurface layer)
+export const cityParcels = sqliteTable("city_parcels", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  siteId: integer("site_id"),
+  fullAddress: text("full_address").notNull(),
+  blockNumber: text("block_number"),
+  lotNumber: text("lot_number"),
+  zone: text("zone"),
+  siteArea: real("site_area"),
+  frontage: real("frontage"),
+  postalCode: text("postal_code"),
+  ward: text("ward"),
+  neighbourhood: text("neighbourhood"),
+  activeStatus: text("active_status"),
+  siteStatus: text("site_status"),
+  streetNumber: text("street_number"),
+  streetName: text("street_name"),
+  streetSuffix: text("street_suffix"),
+  streetPostDir: text("street_post_dir"),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_city_parcels_site_id").on(table.siteId),
+  index("idx_city_parcels_full_address").on(table.fullAddress),
+  index("idx_city_parcels_block_lot").on(table.blockNumber, table.lotNumber),
+  index("idx_city_parcels_neighbourhood").on(table.neighbourhood),
+]);
+
+// City Parcel Matches (linking parcels to our properties)
+export const cityParcelMatches = sqliteTable("city_parcel_matches", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cityParcelId: integer("city_parcel_id").notNull().references(() => cityParcels.id),
+  propertyId: integer("property_id").notNull().references(() => properties.id),
+  matchMethod: text("match_method").notNull(), // 'exact', 'normalized', 'fuzzy'
+  confidence: real("confidence").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_city_parcel_matches_parcel_id").on(table.cityParcelId),
+  index("idx_city_parcel_matches_property_id").on(table.propertyId),
+  index("idx_city_parcel_matches_status").on(table.status),
+]);
+
+// ISC Parcel Matches (linking ISC parcels to city assessments)
+export const iscParcelMatches = sqliteTable("isc_parcel_matches", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cityAssessmentId: integer("city_assessment_id").notNull().references(() => cityAssessments.id),
+  iscParcelId: integer("isc_parcel_id").notNull(),
+  cityParcelId: integer("city_parcel_id").references(() => cityParcels.id),
+  matchMethod: text("match_method").notNull(), // 'block_lot_exact', 'block_lot_section', 'manual'
+  confidence: real("confidence").notNull(),
+  status: text("status").notNull().default("pending"), // pending, confirmed, rejected
+  notes: text("notes"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  reviewedAt: text("reviewed_at"),
+}, (table) => [
+  index("idx_isc_matches_assessment_id").on(table.cityAssessmentId),
+  index("idx_isc_matches_isc_parcel_id").on(table.iscParcelId),
+  index("idx_isc_matches_status").on(table.status),
+]);
+
+// Ownership History (timestamped chain of ownership per property)
+export const ownershipHistory = sqliteTable("ownership_history", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  propertyId: integer("property_id").references(() => properties.id),
+  cityAssessmentId: integer("city_assessment_id").references(() => cityAssessments.id),
+  ownerName: text("owner_name").notNull(),
+  companyId: integer("company_id").references(() => companies.id),
+  acquiredDate: text("acquired_date"),
+  disposedDate: text("disposed_date"),
+  source: text("source").notNull(), // 'isc', 'transfer_list', 'manual'
+  titleNumber: text("title_number"),
+  shareFraction: real("share_fraction").default(1.0),
+  iscParcelId: integer("isc_parcel_id"),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_ownership_property").on(table.propertyId),
+  index("idx_ownership_assessment").on(table.cityAssessmentId),
+  index("idx_ownership_company").on(table.companyId),
+  index("idx_ownership_owner").on(table.ownerName),
+  index("idx_ownership_current").on(table.disposedDate),
+]);
+
+// ISC Ownership (raw data from GetParcelInformation)
+export const iscOwnership = sqliteTable("isc_ownership", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  iscParcelId: integer("isc_parcel_id").notNull(),
+  parcelNumber: text("parcel_number").notNull(),
+  ownerNames: text("owner_names"),
+  titleNumber: text("title_number"),
+  titleShare: text("title_share"),
+  lastAmendmentDate: text("last_amendment_date"),
+  municipality: text("municipality"),
+  commodityDescription: text("commodity_description"),
+  fetchedAt: text("fetched_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("idx_isc_ownership_parcel").on(table.iscParcelId),
+  index("idx_isc_ownership_parcel_num").on(table.parcelNumber),
 ]);
 
 // Muted Addresses (addresses to auto-dismiss on scrape)

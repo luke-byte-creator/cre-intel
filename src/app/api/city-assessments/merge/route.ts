@@ -31,11 +31,12 @@ export async function POST() {
     rawDb.prepare(`
       UPDATE properties SET 
         assessed_value = ?, zoning = ?, roll_number = ?, ward = ?,
+        city_assessment_id = ?,
         neighbourhood = COALESCE(neighbourhood, ?), updated_at = ?
       WHERE id = ?
     `).run(
       city.assessedValue, city.zoningDesc, String(city.rollNumber || ''),
-      city.ward, city.neighbourhood, now, match.propertyId
+      city.ward, city.id, city.neighbourhood, now, match.propertyId
     );
 
     db.update(schema.cityAssessmentMatches)
