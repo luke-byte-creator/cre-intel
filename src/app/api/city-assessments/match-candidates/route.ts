@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
 
     // Count unmatched Saskatoon properties
     const baseWhere = `p.id NOT IN (SELECT property_id FROM city_assessment_matches)
+      AND p.id NOT IN (SELECT property_id FROM skipped_properties)
       AND (p.city = 'Saskatoon' OR p.city_normalized LIKE '%saskatoon%')`;
 
     let countSql = `SELECT COUNT(*) as c FROM properties p WHERE ${baseWhere}`;
