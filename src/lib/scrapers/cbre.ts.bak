@@ -1,0 +1,382 @@
+/**
+ * CBRE Scraper for Nova CRE Intelligence Platform
+ * Scrapes CBRE Canada listings for office, industrial, multi-family properties in Saskatoon
+ * Source: https://www.cbre.ca (with search filters for Saskatoon commercial)
+ */
+
+import { Page } from 'playwright';
+import { 
+  browserPool, 
+  rateLimiter, 
+  withRetry, 
+  createScrapingPage, 
+  cleanText, 
+  parseSquareFeet, 
+  parsePrice,
+  classifyPropertyType,
+  shouldScrapePropertyType
+} from './utils';
+
+export interface CBREListing {
+  address: string;
+  property_type: string;
+  listing_type: string; // 'sale' or 'lease'
+  asking_price: number | null;
+  asking_rent: number | null;
+  square_feet: number | null;
+  description: string | null;
+  broker: string | null;
+  brokerage_firm: string;
+  source_url: string;
+  listing_id: string | null;
+  raw_data: string;
+}
+
+export interface CBREScrapingResult {
+  listings: CBREListing[];
+  metadata: {
+    totalFound: number;
+    totalProcessed: number;
+    filteredOut: number;
+  };
+}
+
+export class CBREScraper {
+  private baseUrl = 'https://www.cbre.ca';
+  private searchUrl = 'https://www.cbre.ca/properties';
+  private brokerageFirm = 'CBRE';
+
+  async scrape(): Promise<CBREScrapingResult> {
+    console.log('Starting CBRE scraper...');
+    
+    const browser = await browserPool.getBrowser();
+    const page = await createScrapingPage(browser);
+    
+    try {
+      const result = await withRetry(() => this.scrapeListings(page));
+      return result;
+    } finally {
+      await page.close();
+    }
+  }
+
+  private async scrapeListings(page: Page): Promise<CBREScrapingResult> {
+    await rateLimiter.wait();
+    
+    console.log('Navigating to CBRE search page...');
+    await page.goto(this.searchUrl, { waitUntil: 'networkidle' });
+    
+    // Set up search filters for Saskatoon commercial properties
+    await this.setupSearchFilters(page);
+    
+    const allListings: CBREListing[] = [];
+    let pageNum = 1;
+    let filteredOut = 0;
+    
+    while (true) {
+      console.log(`Scraping CBRE page ${pageNum}...`);
+      
+      // Wait for listings to load
+      await page.waitForSelector('.property-item, .listing-card, .property-card, .search-result', { timeout: 15000 });
+      
+      const pageListings = await this.extractListingsFromPage(page);
+      
+      // Filter for relevant property types
+      const relevantListings = pageListings.filter(listing => {
+        if (shouldScrapePropertyType(listing.propertyType)) {
+          return true;
+        } else {
+          filteredOut++;
+          return false;
+        }
+      });
+      
+      allListings.push(...relevantListings);
+      console.log(`CBRE page ${pageNum}: ${pageListings.length} listings found, ${relevantListings.length} relevant`);
+      
+      // Check for next page
+      const nextPageButton = await page.$('button[aria-label="Next page"], .pagination .next, .next-page');
+      if (!nextPageButton || !(await nextPageButton.isEnabled())) {
+        break;
+      }
+      
+      await rateLimiter.wait();
+      await nextPageButton.click();
+      await page.waitForLoadState('networkidle');
+      pageNum++;
+      
+      // Safety limit
+      if (pageNum > 30) {
+        console.warn('Reached page limit (30), stopping');
+        break;
+      }
+    }
+    
+    console.log(`CBRE scraping complete: ${allListings.length} relevant listings from ${pageNum} pages`);
+    
+    return {
+      listings: allListings,
+      metadata: {
+        totalFound: allListings.length + filteredOut,
+        totalProcessed: allListings.length,
+        filteredOut,
+      },
+    };
+  }
+
+  private async setupSearchFilters(page: Page): Promise<void> {
+    try {
+      // Look for location/city filter
+      const locationInput = await page.$('input[placeholder*="location"], input[name*="location"], input[id*="location"]');
+      if (locationInput) {
+        await locationInput.fill('Saskatoon, SK');
+        await page.keyboard.press('Enter');
+        await rateLimiter.wait();
+      }
+      
+      // Look for property type filters
+      const propertyTypeSelectors = [
+        'input[value*="Office"]',
+        'input[value*="Industrial"]', 
+        'input[value*="Multifamily"]',
+        'input[value*="Multi-family"]',
+        'button[data-filter*="office"]',
+        'button[data-filter*="industrial"]',
+        'button[data-filter*="multifamily"]'
+      ];
+      
+      for (const selector of propertyTypeSelectors) {
+        const element = await page.$(selector);
+        if (element) {
+          await element.click();
+          await page.waitForTimeout(500); // Brief pause between clicks
+        }
+      }
+      
+      // Apply filters if there's a submit button
+      const submitButton = await page.$('button[type="submit"], .search-button, .apply-filters');
+      if (submitButton) {
+        await submitButton.click();
+        await page.waitForLoadState('networkidle');
+      }
+      
+    } catch (error) {
+      console.warn('Error setting up CBRE search filters:', error);
+      // Continue anyway - we'll filter results later
+    }
+  }
+
+  private async extractListingsFromPage(page: Page): Promise<CBREListing[]> {
+    const listings: CBREListing[] = [];
+    
+    // Try different possible selectors for CBRE listing containers
+    const listingSelectors = [
+      '.property-item',
+      '.listing-card', 
+      '.property-card',
+      '.search-result',
+      '.property-listing',
+      '[data-testid*="property"]',
+      '.result-item'
+    ];
+    
+    let listingElements: any[] = [];
+    
+    for (const selector of listingSelectors) {
+      listingElements = await page.$$(selector);
+      if (listingElements.length > 0) {
+        console.log(`Found ${listingElements.length} CBRE listings using selector: ${selector}`);
+        break;
+      }
+    }
+    
+    if (listingElements.length === 0) {
+      console.warn('No CBRE listing elements found on page');
+      return listings;
+    }
+    
+    for (const element of listingElements) {
+      try {
+        const listing = await this.extractListingFromElement(page, element);
+        if (listing) {
+          listings.push(listing);
+        }
+      } catch (error) {
+        console.warn('Error extracting CBRE listing:', error);
+        continue;
+      }
+    }
+    
+    return listings;
+  }
+
+  private async extractListingFromElement(page: Page, element: any): Promise<CBREListing | null> {
+    try {
+      // Extract text content
+      const listingText = await element.textContent() || '';
+      const listingHtml = await element.innerHTML() || '';
+      
+      // Try to get the listing URL
+      let sourceUrl = this.searchUrl;
+      const linkElement = await element.$('a');
+      if (linkElement) {
+        const href = await linkElement.getAttribute('href');
+        if (href) {
+          sourceUrl = href.startsWith('http') ? href : `${this.baseUrl}${href}`;
+        }
+      }
+      
+      // Extract listing ID
+      const listingIdMatch = sourceUrl.match(/\/property\/([^\/\?]+)|id[=:]([^&\s]+)|listing[_-]?([^&\s\/]+)/i);
+      const listingId = listingIdMatch ? (listingIdMatch[1] || listingIdMatch[2] || listingIdMatch[3]) : null;
+      
+      // Extract address
+      let address = '';
+      
+      // Try structured elements first
+      const addressElement = await element.$('.address, .location, .property-address, [class*="address"], [data-testid*="address"]');
+      if (addressElement) {
+        address = cleanText(await addressElement.textContent() || '');
+      }
+      
+      // Fallback to text patterns
+      if (!address) {
+        const addressPatterns = [
+          /(?:^|\n)\s*(\d+[\s\-]+[\w\s]+(ST|AVE|DR|RD|BLVD|CRES|PL|WAY|LANE|CRT|TERR|PKWY|HWY|CIRCLE|MANOR|MEWS|TRAIL|GATE)[\s\w]*)/im,
+          /address[:\s]*([^\n\r]+)/i,
+          /location[:\s]*([^\n\r]+)/i,
+        ];
+        
+        for (const pattern of addressPatterns) {
+          const match = listingText.match(pattern);
+          if (match) {
+            address = cleanText(match[1]);
+            break;
+          }
+        }
+      }
+      
+      if (!address) {
+        console.warn('No address found for CBRE listing, skipping');
+        return null;
+      }
+      
+      // Only process Saskatoon listings
+      if (!address.toLowerCase().includes('saskatoon') && !listingText.toLowerCase().includes('saskatoon')) {
+        return null;
+      }
+      
+      // Classify property type
+      const propertyType = classifyPropertyType(listingText + ' ' + listingHtml);
+      
+      // Determine listing type
+      const listingType = this.determineListingType(listingText + ' ' + listingHtml);
+      
+      // Extract price/rent
+      let askingPrice: number | null = null;
+      let askingRent: number | null = null;
+      
+      if (listingType === 'sale') {
+        askingPrice = parsePrice(listingText);
+      } else {
+        askingRent = this.parseRent(listingText);
+      }
+      
+      // Extract square footage
+      const squareFeet = parseSquareFeet(listingText);
+      
+      // Extract broker name
+      let broker: string | null = null;
+      const brokerElement = await element.$('.broker, .agent, .contact, [class*="broker"], [data-testid*="agent"]');
+      if (brokerElement) {
+        broker = cleanText(await brokerElement.textContent() || '');
+      } else {
+        // Try text patterns
+        const brokerPatterns = [
+          /broker[:\s]*([^\n\r]+)/i,
+          /agent[:\s]*([^\n\r]+)/i,
+          /contact[:\s]*([^\n\r]+)/i,
+          /listed\s+by[:\s]*([^\n\r]+)/i,
+        ];
+        
+        for (const pattern of brokerPatterns) {
+          const match = listingText.match(pattern);
+          if (match) {
+            broker = cleanText(match[1]);
+            break;
+          }
+        }
+      }
+      
+      // Extract description
+      let description: string | null = null;
+      const descElement = await element.$('.description, .details, .property-details, [class*="desc"]');
+      if (descElement) {
+        description = cleanText(await descElement.textContent() || '');
+      } else {
+        description = cleanText(listingText).substring(0, 500);
+      }
+      
+      if (!propertyType) {
+        console.warn(`Could not determine property type for CBRE listing: ${address}`);
+        return null;
+      }
+      
+      return {
+        address,
+        propertyType,
+        listingType,
+        askingPrice,
+        askingRent,
+        squareFeet,
+        description,
+        broker,
+        brokerageFirm: this.brokerageFirm,
+        sourceUrl,
+        listingId,
+      };
+      
+    } catch (error) {
+      console.warn('Error extracting CBRE listing details:', error);
+      return null;
+    }
+  }
+
+  private determineListingType(text: string): string {
+    const lowerText = text.toLowerCase();
+    
+    // Look for sale indicators
+    if (lowerText.includes('for sale') || lowerText.includes('purchase') || lowerText.includes('buying') || 
+        lowerText.includes('investment') && lowerText.includes('cap rate')) {
+      return 'sale';
+    }
+    
+    // Look for lease indicators
+    if (lowerText.includes('for lease') || lowerText.includes('rent') || lowerText.includes('leasing') ||
+        lowerText.includes('$/sf') || lowerText.includes('per sq ft')) {
+      return 'lease';
+    }
+    
+    // Default to lease for commercial properties
+    return 'lease';
+  }
+
+  private parseRent(text: string): number | null {
+    const rentPatterns = [
+      /\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*\/?\s*(?:sq\.?\s*ft\.?|sf)\s*\/?\s*(?:month|mo|annually|year|yr)?/i,
+      /\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(?:\/month|\/mo|\/year|\/yr|per\s+month|per\s+year)?/i,
+    ];
+    
+    for (const pattern of rentPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        return parseFloat(match[1].replace(/,/g, ''));
+      }
+    }
+    
+    return null;
+  }
+}
+
+// Export singleton instance
+export const cbreScraper = new CBREScraper();

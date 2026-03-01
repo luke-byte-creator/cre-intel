@@ -1,4 +1,26 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Nova CRE Intel
+
+Commercial real estate intelligence platform built with Next.js, TypeScript, and SQLite.
+
+## Security Features
+
+### Email Authentication
+- **SPF/DKIM Verification**: Cloudflare Email Worker verifies sender authentication
+- **Sender Whitelist**: Only authorized CBRE email addresses can submit emails
+- **Defense in Depth**: Both worker and server-side authentication verification
+
+### Emergency Kill Switch
+- **Admin Interface**: `/admin/security` for manual emergency shutdown
+- **Telegram Trigger**: `watermelon` message activates emergency shutdown via OpenClaw
+- **System Protection**: Blocks all API routes except admin controls when active
+- **Process Termination**: Kills Next.js server and Cloudflare tunnel on activation
+- **Recovery**: Admin authentication required for system restoration
+
+### Implementation Details
+- Kill switch status stored in `data/killswitch.lock`
+- All shutdowns logged to `data/killswitch.log` with timestamps and user info
+- API routes protected via `checkKillSwitch()` utility function
+- Telegram trigger script: `/Users/lukejansen/.openclaw/workspace/kill-nova.sh`
 
 ## Getting Started
 

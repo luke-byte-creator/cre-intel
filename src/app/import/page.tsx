@@ -1,16 +1,793 @@
 "use client";
 
+import { useState, useCallback, useEffect } from "react";
+import Link from "next/link";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+interface ExtractedComp { [key: string]: any }
+
+interface ImportStats {
+  companiesFound: number;
+  companiesCreated: number;
+  companiesMatched: number;
+  peopleFound: number;
+  peopleCreated: number;
+  peopleMatched: number;
+  propertiesFound: number;
+  propertiesCreated: number;
+  propertiesMatched: number;
+  transactionsCreated: number;
+  permitsCreated: number;
+}
+
+interface MatchInfo {
+  source: string;
+  matched: string;
+  score: number;
+  type: string;
+}
+
+interface ImportResult {
+  success: boolean;
+  fileType: string;
+  filename: string;
+  stats: ImportStats;
+  warnings: string[];
+  matches: MatchInfo[];
+  error?: string;
+}
+
+interface PendingComp {
+  id: number;
+  type: string;
+  address: string;
+  tenant?: string;
+  landlord?: string;
+  seller?: string;
+  purchaser?: string;
+  salePrice?: number;
+  saleDate?: string;
+  leaseStart?: string;
+  leaseExpiry?: string;
+  netRentPSF?: number;
+  areaSF?: number;
+  propertyType?: string;
+  sourceRef: string;
+  confidence: number;
+  fieldConfidence: Record<string, { confidence: number; source: string }>;
+  missingFields: string[];
+  notes?: string;
+  status: string;
+  duplicateOfId?: number;
+  createdAt: string;
+}
+
 export default function ImportPage() {
+  const [pendingComps, setPendingComps] = useState<PendingComp[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [pendingLoaded, setPendingLoaded] = useState(false);
+  const [selectedComps, setSelectedComps] = useState<Set<number>>(new Set());
+  const [showDetails, setShowDetails] = useState<Set<number>>(new Set());
+
+  const [dragActive, setDragActive] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [results, setResults] = useState<ImportResult[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  // External comp extraction state
+  const [compDragActive, setCompDragActive] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [extractedComps, setExtractedComps] = useState<ExtractedComp[]>([]);
+  const [compStatuses, setCompStatuses] = useState<Record<number, "added" | "skipped" | "adding">>({});
+  const [compError, setCompError] = useState<string | null>(null);
+  const [compFilename, setCompFilename] = useState<string>("");
+  const [editingComp, setEditingComp] = useState<number | null>(null);
+
+  const handleUpload = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    setError(null);
+
+    for (const file of Array.from(files)) {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const res = await fetch("/api/import", { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.success) {
+          setResults((prev) => [data, ...prev]);
+        } else {
+          setError(data.error || "Import failed");
+        }
+      } catch {
+        setError("Upload failed. Please try again.");
+      }
+    }
+    setUploading(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragActive(false);
+      handleUpload(e.dataTransfer.files);
+    },
+    [handleUpload]
+  );
+
+  const handleCompUpload = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    setExtracting(true);
+    setCompError(null);
+    setExtractedComps([]);
+    setCompStatuses({});
+    setCompFilename(file.name);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/import/extract-comps", { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.success && data.comps) {
+        setExtractedComps(data.comps);
+      } else {
+        setCompError(data.error || "Extraction failed");
+      }
+    } catch (err) {
+      setCompError(`Upload failed: ${(err as Error).message || "Unknown error"}. Try again.`);
+    }
+    setExtracting(false);
+  }, []);
+
+  const handleCompDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setCompDragActive(false);
+      handleCompUpload(e.dataTransfer.files);
+    },
+    [handleCompUpload]
+  );
+
+  const addComp = useCallback(async (comp: ExtractedComp, index: number) => {
+    setCompStatuses((prev) => ({ ...prev, [index]: "adding" }));
+    try {
+      const res = await fetch("/api/import/add-comp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(comp),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCompStatuses((prev) => ({ ...prev, [index]: "added" }));
+      } else {
+        setCompStatuses((prev) => { const n = { ...prev }; delete n[index]; return n; });
+        setCompError(data.error || "Failed to add comp");
+      }
+    } catch {
+      setCompStatuses((prev) => { const n = { ...prev }; delete n[index]; return n; });
+      setCompError("Failed to add comp");
+    }
+  }, []);
+
+  const addAllComps = useCallback(async () => {
+    for (let i = 0; i < extractedComps.length; i++) {
+      if (!compStatuses[i]) {
+        await addComp(extractedComps[i], i);
+      }
+    }
+  }, [extractedComps, compStatuses, addComp]);
+
+  const skipComp = useCallback((index: number) => {
+    setCompStatuses((prev) => ({ ...prev, [index]: "skipped" }));
+  }, []);
+
+  const formatPrice = (v: number | null | undefined) => {
+    if (!v) return "—";
+    return "$" + v.toLocaleString();
+  };
+
+  const fileTypeLabel = (ft: string) => {
+    switch (ft) {
+      case "corporate_registry": return "Corporate Registry";
+      case "building_permit": return "Building Permits";
+      case "transfer_list": return "Transfer List";
+      default: return ft;
+    }
+  };
+
+  const fileTypeIcon = (ft: string) => {
+    switch (ft) {
+      case "corporate_registry": return "🏢";
+      case "building_permit": return "🏗️";
+      case "transfer_list": return "📊";
+      default: return "📁";
+    }
+  };
+
+  // ─── Pending comps logic ──────────────────────────────────────────────
+
+  const fetchPendingComps = useCallback(async () => {
+    setPendingLoading(true);
+    try {
+      const res = await fetch("/api/comps/pending");
+      if (res.ok) {
+        const data = await res.json();
+        setPendingComps(data.comps || []);
+        setPendingLoaded(true);
+      }
+    } catch (e) {
+      console.error("Failed to fetch pending comps:", e);
+    } finally {
+      setPendingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!pendingLoaded) fetchPendingComps();
+  }, [pendingLoaded, fetchPendingComps]);
+
+  const handlePendingAction = async (action: string, compIds?: number[]) => {
+    const targetIds = compIds || Array.from(selectedComps);
+    if (targetIds.length === 0) return;
+    try {
+      const res = await fetch("/api/comps/pending", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, compIds: targetIds }),
+      });
+      if (res.ok) {
+        await fetchPendingComps();
+        setSelectedComps(new Set());
+      }
+    } catch (e) {
+      console.error(`${action} failed:`, e);
+    }
+  };
+
+  const toggleCompSelection = (id: number) => {
+    const s = new Set(selectedComps);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelectedComps(s);
+  };
+
+  const toggleCompDetails = (id: number) => {
+    const s = new Set(showDetails);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setShowDetails(s);
+  };
+
+  const getConfidenceColor = (c: number) => c >= 0.8 ? "text-emerald-400" : c >= 0.6 ? "text-yellow-400" : "text-red-400";
+
+  // ─── Render ──────────────────────────────────────────────────────────────
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Import</h1>
-        <p className="text-muted text-sm mt-1">Upload PDFs and Excel files to import data</p>
+        <p className="text-muted text-sm mt-1">
+          Upload PDFs and Excel files — data is parsed, matched, and imported automatically
+        </p>
       </div>
-      <div className="bg-card border border-card-border rounded-xl p-12 text-center">
+
+      {/* Drop zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={handleDrop}
+        className={`border-2 border-dashed rounded-xl p-12 text-center transition-colors ${
+          dragActive ? "border-accent bg-accent/5" : "border-card-border hover:border-muted"
+        }`}
+      >
         <p className="text-4xl mb-4">📥</p>
-        <p className="text-foreground font-medium mb-2">Coming Soon</p>
-        <p className="text-muted text-sm">PDF upload and data review will be available here.</p>
+        <p className="text-foreground font-medium mb-2">
+          {uploading ? "Processing..." : "Drop files here or click to browse"}
+        </p>
+        <p className="text-muted text-sm mb-4">Supports PDF, Excel (.xlsx/.xls), and CSV files</p>
+        <label className="inline-block cursor-pointer">
+          <input
+            type="file"
+            multiple
+            accept=".pdf,.xlsx,.xls,.csv"
+            className="hidden"
+            onChange={(e) => handleUpload(e.target.files)}
+            disabled={uploading}
+          />
+          <span className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            uploading
+              ? "bg-muted/30 text-muted cursor-not-allowed"
+              : "bg-accent hover:bg-accent-hover text-white cursor-pointer"
+          }`}>
+            {uploading ? "Processing..." : "Browse Files"}
+          </span>
+        </label>
+      </div>
+
+      {error && (
+        <div className="bg-danger/10 border border-danger/30 text-danger rounded-lg px-4 py-3 text-sm">
+          {error}
+        </div>
+      )}
+
+      {/* Import Results */}
+      {results.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold text-foreground mb-3">Import Results</h2>
+          <div className="space-y-4">
+            {results.map((r, i) => (
+              <div key={i} className="bg-card border border-card-border rounded-xl p-5">
+                {/* Header */}
+                <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{fileTypeIcon(r.fileType)}</span>
+                    <div>
+                      <p className="text-foreground font-medium">{r.filename}</p>
+                      <p className="text-muted text-xs mt-0.5">{fileTypeLabel(r.fileType)}</p>
+                    </div>
+                  </div>
+                  <span className="text-xs px-2 py-1 rounded-full bg-success/15 text-success font-medium">
+                    ✓ Imported
+                  </span>
+                </div>
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  {r.stats.companiesFound > 0 && (
+                    <StatBox
+                      label="Companies"
+                      found={r.stats.companiesFound}
+                      created={r.stats.companiesCreated}
+                      matched={r.stats.companiesMatched}
+                    />
+                  )}
+                  {r.stats.peopleFound > 0 && (
+                    <StatBox
+                      label="People"
+                      found={r.stats.peopleFound}
+                      created={r.stats.peopleCreated}
+                      matched={r.stats.peopleMatched}
+                    />
+                  )}
+                  {r.stats.propertiesFound > 0 && (
+                    <StatBox
+                      label="Properties"
+                      found={r.stats.propertiesFound}
+                      created={r.stats.propertiesCreated}
+                      matched={r.stats.propertiesMatched}
+                    />
+                  )}
+                  {r.stats.transactionsCreated > 0 && (
+                    <div className="bg-background rounded-lg p-3">
+                      <p className="text-2xl font-bold text-foreground">{r.stats.transactionsCreated}</p>
+                      <p className="text-muted text-xs">Transactions</p>
+                    </div>
+                  )}
+                  {r.stats.permitsCreated > 0 && (
+                    <div className="bg-background rounded-lg p-3">
+                      <p className="text-2xl font-bold text-foreground">{r.stats.permitsCreated}</p>
+                      <p className="text-muted text-xs">Permits</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Warnings */}
+                {r.warnings.length > 0 && (
+                  <div className="mb-3">
+                    {r.warnings.map((w, j) => (
+                      <p key={j} className="text-sm text-warning flex items-center gap-1">
+                        <span>⚠️</span> {w}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                {/* Entity Matches */}
+                {r.matches.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="text-sm text-accent cursor-pointer hover:underline">
+                      {r.matches.length} entity match{r.matches.length !== 1 ? "es" : ""} found
+                    </summary>
+                    <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                      {r.matches.map((m, j) => (
+                        <div key={j} className="text-xs flex items-center gap-2 text-muted py-1">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            m.type === "company" ? "bg-blue-500/15 text-blue-400" :
+                            m.type === "person" ? "bg-purple-500/15 text-purple-400" :
+                            "bg-green-500/15 text-green-400"
+                          }`}>
+                            {m.type}
+                          </span>
+                          <span className="text-foreground">{m.source}</span>
+                          <span>→</span>
+                          <span className="text-foreground">{m.matched}</span>
+                          <span className="text-accent">({Math.round(m.score * 100)}%)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* External Comp Sets */}
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold text-foreground mb-1">External Comp Sets</h2>
+        <p className="text-muted text-sm mb-4">
+          Drop appraiser PDFs, broker comp sheets, or any transaction summaries — AI extracts and you review before adding
+        </p>
+
+        <div
+          onDragOver={(e) => { e.preventDefault(); setCompDragActive(true); }}
+          onDragLeave={() => setCompDragActive(false)}
+          onDrop={handleCompDrop}
+          className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors ${
+            compDragActive ? "border-accent bg-accent/5" : "border-card-border hover:border-muted"
+          }`}
+        >
+          <p className="text-3xl mb-3">🤖</p>
+          <p className="text-foreground font-medium mb-1">
+            {extracting ? "Extracting comps..." : "Drop a comp set file"}
+          </p>
+          <p className="text-muted text-xs mb-3">PDF, Excel, or CSV — AI will find and extract all comps</p>
+          <label className="inline-block cursor-pointer">
+            <input
+              type="file"
+              accept=".pdf,.xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => handleCompUpload(e.target.files)}
+              disabled={extracting}
+            />
+            <span className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              extracting
+                ? "bg-muted/30 text-muted cursor-not-allowed"
+                : "bg-accent hover:bg-accent-hover text-white cursor-pointer"
+            }`}>
+              {extracting ? "Extracting..." : "Browse"}
+            </span>
+          </label>
+        </div>
+      </div>
+
+      {compError && (
+        <div className="bg-danger/10 border border-danger/30 text-danger rounded-lg px-4 py-3 text-sm">
+          {compError}
+        </div>
+      )}
+
+      {extractedComps.length > 0 && (
+        <div className="bg-card border border-card-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-foreground font-semibold">
+                {extractedComps.length} comp{extractedComps.length !== 1 ? "s" : ""} found
+              </h3>
+              <p className="text-muted text-xs">from {compFilename}</p>
+            </div>
+            <button
+              onClick={addAllComps}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-accent hover:bg-accent-hover text-white transition-colors"
+            >
+              Add All
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {extractedComps.map((comp, i) => {
+              const status = compStatuses[i];
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const c = comp as Record<string, any>;
+              const isSale = c.type === "Sale";
+
+              // All tracked fields with labels
+              const fields: [string, string, unknown][] = [
+                ["Type", "type", c.type],
+                ["Property Type", "propertyType", c.propertyType],
+                ["Address", "address", c.address],
+                ["City", "city", c.city],
+                ["Province", "province", c.province],
+                ...(isSale ? [
+                  ["Seller", "seller", c.seller] as [string, string, unknown],
+                  ["Purchaser", "purchaser", c.purchaser] as [string, string, unknown],
+                  ["Sale Date", "saleDate", c.saleDate] as [string, string, unknown],
+                  ["Sale Price", "salePrice", c.salePrice ? `$${Number(c.salePrice).toLocaleString()}` : null] as [string, string, unknown],
+                  ["Price PSF", "pricePSF", c.pricePSF ? `$${Number(c.pricePSF).toFixed(2)}` : null] as [string, string, unknown],
+                  ["Price/Acre", "pricePerAcre", c.pricePerAcre ? `$${Number(c.pricePerAcre).toLocaleString()}` : null] as [string, string, unknown],
+                  ["Cap Rate", "capRate", c.capRate ? `${(c.capRate * 100).toFixed(2)}%` : null] as [string, string, unknown],
+                  ["NOI", "noi", c.noi ? `$${Number(c.noi).toLocaleString()}` : null] as [string, string, unknown],
+                ] : [
+                  ["Landlord", "landlord", c.landlord] as [string, string, unknown],
+                  ["Tenant", "tenant", c.tenant] as [string, string, unknown],
+                  ["Lease Start", "leaseStart", c.leaseStart] as [string, string, unknown],
+                  ["Lease Expiry", "leaseExpiry", c.leaseExpiry] as [string, string, unknown],
+                  ["Term (months)", "termMonths", c.termMonths] as [string, string, unknown],
+                  ["Net Rent PSF", "netRentPSF", c.netRentPSF ? `$${Number(c.netRentPSF).toFixed(2)}` : null] as [string, string, unknown],
+                  ["Annual Rent", "annualRent", c.annualRent ? `$${Number(c.annualRent).toLocaleString()}` : null] as [string, string, unknown],
+                ]),
+                ["Area SF", "areaSF", c.areaSF ? `${Number(c.areaSF).toLocaleString()} SF` : null],
+                ["Land Acres", "landAcres", c.landAcres],
+                ["Land SF", "landSF", c.landSF ? `${Number(c.landSF).toLocaleString()} SF` : null],
+                ["Year Built", "yearBuilt", c.yearBuilt],
+                ["Zoning", "zoning", c.zoning],
+                ["Comments", "comments", c.comments],
+              ];
+
+              const filled = fields.filter(([,, v]) => v !== null && v !== undefined && v !== "").length;
+              const total = fields.length;
+
+              return (
+                <div
+                  key={i}
+                  className={`border rounded-xl p-4 transition ${
+                    status === "added" ? "border-success/40 bg-success/5" :
+                    status === "skipped" ? "border-card-border opacity-40" :
+                    "border-card-border bg-card hover:border-gray-600"
+                  }`}
+                >
+                  {/* Header row */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                          isSale ? "bg-blue-500/15 text-blue-400" : "bg-purple-500/15 text-purple-400"
+                        }`}>{c.type}</span>
+                        {c.propertyType && <span className="text-xs text-muted">{c.propertyType}</span>}
+                        <span className="text-xs text-muted">·</span>
+                        <span className="text-xs text-accent">{filled}/{total} fields</span>
+                      </div>
+                      <p className="text-foreground font-medium mt-1">{c.address}{c.city && c.city !== "Saskatoon" ? `, ${c.city}` : ""}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {status === "added" ? (
+                        <span className="text-success text-sm font-medium">✓ Added</span>
+                      ) : status === "skipped" ? (
+                        <span className="text-muted text-sm">Skipped</span>
+                      ) : status === "adding" ? (
+                        <span className="text-muted text-sm">Adding...</span>
+                      ) : (
+                        <>
+                          <button onClick={() => addComp(comp, i)} className="px-3 py-1 rounded-lg text-xs font-medium bg-success/15 text-success hover:bg-success/25 transition">Add</button>
+                          <button onClick={() => setEditingComp(editingComp === i ? null : i)} className={`px-3 py-1 rounded-lg text-xs font-medium transition ${editingComp === i ? "bg-accent/25 text-accent" : "bg-accent/10 text-accent hover:bg-accent/20"}`}>{editingComp === i ? "Done" : "Edit"}</button>
+                          <button onClick={() => skipComp(i)} className="px-3 py-1 rounded-lg text-xs font-medium bg-danger/15 text-danger hover:bg-danger/25 transition">Skip</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Full field grid */}
+                  {editingComp === i ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+                      {fields.map(([label, key]) => (
+                        <div key={label}>
+                          <label className="text-[11px] text-gray-500 block mb-0.5">{label}</label>
+                          {key === "comments" ? (
+                            <textarea
+                              value={c[key] ?? ""}
+                              onChange={e => {
+                                const updated = [...extractedComps];
+                                updated[i] = { ...updated[i], [key]: e.target.value || null };
+                                setExtractedComps(updated);
+                              }}
+                              rows={2}
+                              className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent/50"
+                            />
+                          ) : key === "type" ? (
+                            <select
+                              value={c[key] || "Sale"}
+                              onChange={e => {
+                                const updated = [...extractedComps];
+                                updated[i] = { ...updated[i], [key]: e.target.value };
+                                setExtractedComps(updated);
+                              }}
+                              className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent/50"
+                            >
+                              <option value="Sale">Sale</option>
+                              <option value="Lease">Lease</option>
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={c[key] ?? ""}
+                              onChange={e => {
+                                const updated = [...extractedComps];
+                                const raw = e.target.value;
+                                // Strip formatting for numeric fields before storing
+                                const numericKeys = ["salePrice", "pricePSF", "pricePerAcre", "netRentPSF", "annualRent", "areaSF", "landAcres", "landSF", "capRate", "noi", "yearBuilt", "termMonths"];
+                                if (numericKeys.includes(key)) {
+                                  updated[i] = { ...updated[i], [key]: raw === "" ? null : Number(raw.replace(/[$,%\sSF]/g, "")) || null };
+                                } else {
+                                  updated[i] = { ...updated[i], [key]: raw || null };
+                                }
+                                setExtractedComps(updated);
+                              }}
+                              className="w-full bg-transparent border border-card-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent/50"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1.5">
+                        {fields.filter(([label]) => label !== "Comments").map(([label,, val]) => (
+                          <div key={label} className="flex items-baseline gap-1.5">
+                            <span className="text-[11px] text-gray-500 shrink-0">{label}:</span>
+                            {val !== null && val !== undefined && val !== "" ? (
+                              <span className="text-xs text-foreground truncate">{String(val)}</span>
+                            ) : (
+                              <span className="text-xs text-gray-700">—</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Comments (full width) */}
+                      {c.comments && (
+                        <p className="text-xs text-muted mt-2 leading-relaxed">{c.comments}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Supported formats */}
+      <div className="bg-card border border-card-border rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-foreground mb-3">Supported Formats</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+          <div>
+            <p className="text-accent font-medium">🏢 Corporate Registry PDF</p>
+            <p className="text-muted mt-1">SK corporate registry extracts — company details, directors, shareholders</p>
+          </div>
+          <div>
+            <p className="text-accent font-medium">🏗️ Building Permit PDF</p>
+            <p className="text-muted mt-1">Weekly permit reports — filters commercial permits over $350k</p>
+          </div>
+          <div>
+            <p className="text-accent font-medium">📊 Transfer List Excel</p>
+            <p className="text-muted mt-1">Property transfer records — roll#, address, vendor, purchaser, price</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Pending Comps ──────────────────────────────────────────────── */}
+      <div className="pt-2">
+        <h2 className="text-lg font-semibold text-foreground mb-1">
+          Pending Comps
+          {pendingLoaded && pendingComps.length > 0 && (
+            <span className="ml-2 text-sm font-normal text-muted">({pendingComps.length})</span>
+          )}
+        </h2>
+        <p className="text-sm text-muted mb-4">Comps submitted via email #comp tags that need review before importing</p>
+
+        {pendingLoading ? (
+          <div className="text-muted text-sm">Loading pending comps...</div>
+        ) : (
+          <>
+            {selectedComps.size > 0 && (
+              <div className="bg-card border border-card-border rounded-lg p-4 flex items-center justify-between mb-4">
+                <span className="text-sm text-muted">{selectedComps.size} comp(s) selected</span>
+                <div className="flex gap-2">
+                  <button onClick={() => handlePendingAction("approve")} className="px-3 py-1 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">Approve Selected</button>
+                  <button onClick={() => handlePendingAction("reject")} className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700">Reject Selected</button>
+                </div>
+              </div>
+            )}
+
+            {pendingComps.length > 0 && (
+              <div className="flex gap-2 mb-4">
+                <button onClick={() => handlePendingAction("bulk_approve")} className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 text-sm">Bulk Approve High Confidence</button>
+              </div>
+            )}
+
+            {pendingComps.length === 0 ? (
+              <div className="bg-card border border-card-border rounded-lg p-6 text-center">
+                <div className="text-muted text-sm">No pending comps to review</div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {pendingComps.map((comp) => {
+                  const fieldDot = (field: string) => {
+                    const fc = comp.fieldConfidence[field];
+                    if (!fc) return null;
+                    return <span className={`inline-block w-2 h-2 rounded-full ${fc.source === "explicit" ? "bg-emerald-500" : "bg-yellow-500"} ml-1`} title={`${fc.source}: ${(fc.confidence * 100).toFixed(0)}%`} />;
+                  };
+                  return (
+                    <div key={comp.id} className="bg-card border border-card-border rounded-lg p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-3">
+                          <input type="checkbox" checked={selectedComps.has(comp.id)} onChange={() => toggleCompSelection(comp.id)} className="mt-1" />
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-foreground">{comp.address}{fieldDot("address")}</span>
+                              <span className="text-xs px-2 py-1 bg-accent/20 text-accent rounded">{comp.type}</span>
+                              {comp.duplicateOfId && <span className="text-xs px-2 py-1 bg-red-500/20 text-red-400 rounded">DUPLICATE</span>}
+                            </div>
+                            <div className="text-sm text-muted space-y-1">
+                              {comp.tenant && <div>Tenant: {comp.tenant}{fieldDot("tenant")}</div>}
+                              {comp.seller && <div>Seller: {comp.seller}{fieldDot("seller")}</div>}
+                              {comp.salePrice && <div>Price: ${comp.salePrice.toLocaleString()}{fieldDot("salePrice")}</div>}
+                              {comp.netRentPSF && <div>Rent: ${comp.netRentPSF}/SF{fieldDot("netRentPSF")}</div>}
+                              {comp.areaSF && <div>Area: {comp.areaSF.toLocaleString()} SF{fieldDot("areaSF")}</div>}
+                            </div>
+                            <div className="text-xs text-muted">Source: {comp.sourceRef}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <div className={`text-sm font-medium ${getConfidenceColor(comp.confidence)}`}>{(comp.confidence * 100).toFixed(0)}% confidence</div>
+                            <div className="text-xs text-muted">{comp.missingFields.length} missing fields</div>
+                          </div>
+                          <div className="flex gap-1">
+                            <button onClick={() => toggleCompDetails(comp.id)} className="p-1 text-muted hover:text-foreground" title="Details">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </button>
+                            <button onClick={() => handlePendingAction("approve", [comp.id])} className="p-1 text-emerald-400 hover:text-emerald-300" title="Approve">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                            </button>
+                            <button onClick={() => handlePendingAction("reject", [comp.id])} className="p-1 text-red-400 hover:text-red-300" title="Reject">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {showDetails.has(comp.id) && (
+                        <div className="mt-4 pt-4 border-t border-card-border space-y-3">
+                          <div>
+                            <h4 className="text-sm font-medium text-foreground mb-2">Field Confidence</h4>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                              {Object.entries(comp.fieldConfidence).map(([field, conf]) => (
+                                <div key={field} className="flex items-center justify-between">
+                                  <span className="capitalize">{field.replace(/([A-Z])/g, " $1").trim()}:</span>
+                                  <span className={conf.source === "explicit" ? "text-emerald-400" : "text-yellow-400"}>{conf.source} ({(conf.confidence * 100).toFixed(0)}%)</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          {comp.missingFields.length > 0 && (
+                            <div>
+                              <h4 className="text-sm font-medium text-foreground mb-2">Missing Fields</h4>
+                              <div className="text-xs text-muted">{comp.missingFields.join(", ")}</div>
+                            </div>
+                          )}
+                          {comp.notes && (
+                            <div>
+                              <h4 className="text-sm font-medium text-foreground mb-2">Nova&apos;s Notes</h4>
+                              <div className="text-xs text-muted bg-muted/10 p-2 rounded">{comp.notes}</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatBox({ label, found, created, matched }: {
+  label: string; found: number; created: number; matched: number;
+}) {
+  return (
+    <div className="bg-background rounded-lg p-3">
+      <p className="text-2xl font-bold text-foreground">{found}</p>
+      <p className="text-muted text-xs">{label}</p>
+      <div className="flex gap-2 mt-1 text-[10px]">
+        {created > 0 && <span className="text-success">+{created} new</span>}
+        {matched > 0 && <span className="text-accent">🔗{matched} matched</span>}
       </div>
     </div>
   );
